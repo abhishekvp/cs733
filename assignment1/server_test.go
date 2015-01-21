@@ -10,7 +10,12 @@ import (
 
 const servAddr string = "localhost:9000"
 
+
+
 func Test_Set(t *testing.T) {
+
+	go main()
+	time.Sleep(time.Duration(1) * time.Second)
 
 	tcpAddr, err := net.ResolveTCPAddr("tcp", servAddr)
 	if err != nil {
