@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"math/rand"
 	"net"
 	"strconv"
@@ -59,7 +58,6 @@ func processClient(conn net.Conn) {
 
 		//Count the number of spaces in the line received from the client
 		count := strings.Count(string(bufLine1[0:]), " ")
-		fmt.Println("Count = " + strconv.Itoa(count))
 
 		cLine1 = strings.Fields(string(bufLine1[0:]))
 
@@ -109,9 +107,7 @@ func processClient(conn net.Conn) {
 			//The "Space" count for a legal get query should be 1
 			if count == 1 {
 				if _, ok := kvMap[strings.Trim(cLine1[1], "\r\n")]["value"]; ok {
-					_, genError = conn.Write([]byte("VALUE "))
-					_, genError = conn.Write([]byte(kvMap[strings.Trim(cLine1[1], "\r\n")]["numbytes"] + "\n"))
-					_, genError = conn.Write([]byte(kvMap[strings.Trim(cLine1[1], "\r\n")]["value"]))
+					_, genError = conn.Write([]byte("VALUE \n"+ kvMap[strings.Trim(cLine1[1], "\r\n")]["numbytes"] + "\n" + kvMap[strings.Trim(cLine1[1], "\r\n")]["value"]))
 				} else {
 					//Key Not Found Error
 					ERRNOTFOUND(conn)
@@ -198,6 +194,9 @@ func processClient(conn net.Conn) {
 * @param key String
 * Updates the "exptime" field of the key, by decrementing at the interval of one second.
 * Once the exptime is up, the key-value pair is deleted from the Map
+* 
+* Timer and Ticker Code referred from Go By Example
+* URL: https://gobyexample.com/tickers 
  */
 func processExpTime(key string) {
 
