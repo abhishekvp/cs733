@@ -1,4 +1,3 @@
-# cs733
 Assignment 1. A memcached clone
 ===============================
 
