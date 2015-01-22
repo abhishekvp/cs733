@@ -11,7 +11,6 @@ import (
 
 const port string = ":9000"
 
-
 /*
 * Map of Maps to store data.
 * 	kvMap[key]["exptime"]
@@ -42,30 +41,26 @@ func main() {
 		go processClient(conn)
 
 	}
-	
-}
 
+}
 
 func processClient(conn net.Conn) {
 
-
-
 	for {
 
-	var bufLine1 [512]byte
-	var bufLine2 [512]byte
-	var cLine1 []string
-	var cLine2 string
-
+		var bufLine1 [512]byte
+		var bufLine2 [512]byte
+		var cLine1 []string
+		var cLine2 string
 
 		// Read First Line from the client
 		_, genError := conn.Read(bufLine1[0:])
 		checkError(genError, conn)
-		
+
 		//Count the number of spaces in the line received from the client
-		count:=strings.Count(string(bufLine1[0:])," ")		
-		fmt.Println("Count = "+ strconv.Itoa(count))
-		
+		count := strings.Count(string(bufLine1[0:]), " ")
+		fmt.Println("Count = " + strconv.Itoa(count))
+
 		cLine1 = strings.Fields(string(bufLine1[0:]))
 
 		//Read second line, containing the value entered at the client
@@ -98,7 +93,7 @@ func processClient(conn net.Conn) {
 				//Handle the "[noreply]" case
 				if count == 4 {
 					//Invalid argument instead of "[noreply]"
-					if strings.Contains(cLine1[4],"[noreply]") != true {
+					if strings.Contains(cLine1[4], "[noreply]") != true {
 						//CommandLine Formatting Error
 						ERRCMDERR(conn)
 					}
@@ -123,7 +118,7 @@ func processClient(conn net.Conn) {
 				}
 			} else {
 				//CommandLine Formatting Error
-				ERRCMDERR(conn)	
+				ERRCMDERR(conn)
 			}
 
 		case "getm":
@@ -141,7 +136,7 @@ func processClient(conn net.Conn) {
 				}
 			} else {
 				//CommandLine Formatting Error
-				ERRCMDERR(conn)	
+				ERRCMDERR(conn)
 			}
 
 		case "cas":
@@ -161,7 +156,7 @@ func processClient(conn net.Conn) {
 					//Handle the "[noreply]" case
 					if count == 5 {
 						//Invalid argument instead of "[noreply]"
-						if strings.Contains(cLine1[5],"[noreply]") != true {
+						if strings.Contains(cLine1[5], "[noreply]") != true {
 							//CommandLine Formatting Error
 							ERRCMDERR(conn)
 						}
@@ -170,21 +165,20 @@ func processClient(conn net.Conn) {
 						checkError(genError, conn)
 					}
 				} else {
-				//Version Mismatch. Value not updated.
-				ERR_VERSION(conn)
+					//Version Mismatch. Value not updated.
+					ERR_VERSION(conn)
 				}
 			} else {
 				//CommandLine Formatting Error
 				ERRCMDERR(conn)
 			}
 
-
 		case "delete":
 			//The "Space" count for a legal delete query should be 1
 			if count == 1 {
 				if _, ok := kvMap[strings.Trim(cLine1[1], "\r\n")]["value"]; ok {
 					delete(kvMap, cLine1[1])
-					_, genError := conn.Write([]byte("DELETED"+"\n"))
+					_, genError := conn.Write([]byte("DELETED" + "\n"))
 					checkError(genError, conn)
 
 				} else {
@@ -193,16 +187,12 @@ func processClient(conn net.Conn) {
 				}
 			} else {
 				//CommandLine Formatting Error
-				ERRCMDERR(conn)	
+				ERRCMDERR(conn)
 			}
 		}
 	}
 
-	
 }
-
-	
-
 
 /**
 * @param key String
@@ -211,25 +201,22 @@ func processClient(conn net.Conn) {
  */
 func processExpTime(key string) {
 
-
-
-		ticker := time.NewTicker(time.Millisecond * 1000)
-		var t time.Time
-		exptime, _ := strconv.Atoi(kvMap[key]["exptime"])
-		go func() {
-			for t = range ticker.C {
-				exptime = exptime - 1
-				// Check for case when the key value pair is deleted or not found
-				if _, ok := kvMap[key]["exptime"]; ok {
-					kvMap[key]["exptime"] = strconv.Itoa(exptime)
-				}
-
+	ticker := time.NewTicker(time.Millisecond * 1000)
+	var t time.Time
+	exptime, _ := strconv.Atoi(kvMap[key]["exptime"])
+	go func() {
+		for t = range ticker.C {
+			exptime = exptime - 1
+			// Check for case when the key value pair is deleted or not found
+			if _, ok := kvMap[key]["exptime"]; ok {
+				kvMap[key]["exptime"] = strconv.Itoa(exptime)
 			}
-		}()
-		time.Sleep(time.Duration(exptime) * time.Second)
-		ticker.Stop()
-		delete(kvMap, key)
-	
+
+		}
+	}()
+	time.Sleep(time.Duration(exptime) * time.Second)
+	ticker.Stop()
+	delete(kvMap, key)
 
 }
 
@@ -253,9 +240,8 @@ func ERRNOTFOUND(conn net.Conn) {
 	_, genError = conn.Write([]byte(err))
 }
 
-
 func ERR_VERSION(conn net.Conn) {
 	var genError error
 	err := "ERR_VERSION\n"
-_	, genError = conn.Write([]byte(err))
+	_, genError = conn.Write([]byte(err))
 }
