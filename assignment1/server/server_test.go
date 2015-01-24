@@ -11,7 +11,7 @@ import (
 
 const servAddr string = "localhost:9000"
 
-func Test_Set_Get(t *testing.T) {
+func Test_Set(t *testing.T) {
 
 	go main()
 
@@ -47,7 +47,7 @@ func Test_Set_Get(t *testing.T) {
 		os.Exit(1)
 	}
 
-	// Assert that the Server responds with "OK"
+	// Assert that the Server responds with "OK"/ Setting works
 	if strings.Fields(string(reply))[0] != "OK" {
 		t.Error("Setting did not work as expected.")
 	}
@@ -76,11 +76,10 @@ func Test_Set_Get(t *testing.T) {
 	strSlice1 := fmt.Sprintf("%T", actual)
 	strSlice2 := fmt.Sprintf("%T", val)
 
-	// Assert that the set and get value are same
+	// Assert that get value are same/ Getting works
 	if strSlice2 != strSlice1 {
 		t.Error("Getting did not work as expected.")
 	}
 
 	conn.Close()
-
 }
