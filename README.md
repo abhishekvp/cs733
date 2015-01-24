@@ -15,6 +15,7 @@ To Do
 -----
 * ~~Make map concurrency-safe~~
 * Add more automated tests
+* Add detailed documentation to README.md
 
 Protocol Specification
 -----------------------
