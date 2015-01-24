@@ -13,7 +13,7 @@ Testing Instructions
   
 To Do
 -----
-* Make map concurrency-safe
+* ~~Make map concurrency-safe~~
 * Add more automated tests
 
 Protocol Specification
