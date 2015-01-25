@@ -76,9 +76,6 @@ func serverCmd(cmd string) {
 }
 func assert(expectedResponse string, serverResponse string, t *testing.T) {
 
-	fmt.Println(len(serverResponse))
-	fmt.Println(len(expectedResponse))
-
 	equal, _ := regexp.MatchString(expectedResponse, serverResponse)
 	if !equal {
 		t.Error("Expected " + expectedResponse + " , Got " + serverResponse + " instead.")
