@@ -38,7 +38,6 @@ func Test_Cases(t *testing.T) {
 			data := make([]byte, 512)
 			_, err := conn.Read(data)
 			if err != nil {
-				// send an error if it's encountered
 				os.Exit(1)
 			}
 			// send data if we read some.

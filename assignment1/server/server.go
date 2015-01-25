@@ -18,7 +18,7 @@ const port string = ":9000"
 * 	kvMap[key]["numbytes"]
 * 	kvMap[key]["version"]
  */
-var counter = struct {
+var kvMapStruct = struct {
 	sync.RWMutex
 	kvMap map[string]map[string]string
 }{kvMap: make(map[string]map[string]string)}
@@ -49,71 +49,71 @@ func processClient(conn net.Conn) {
 
 	for {
 
-		var bufLine1 [512]byte
-		var bufLine2 [512]byte
-		var cLine1 []string
-		var cLine2 string
+		var clientLine1 [512]byte
+		var clientLine2 [512]byte
+		var splitClientLine1 []string
+		var trimmedClientLine2 string
 
 		// Read First Line from the client
-		_, genError := conn.Read(bufLine1[0:])
+		_, genError := conn.Read(clientLine1[0:])
 		checkError(genError, conn)
 
 		//Count the number of spaces in the line received from the client
-		count := strings.Count(string(bufLine1[0:]), " ")
+		count := strings.Count(string(clientLine1[0:]), " ")
 
-		cLine1 = strings.Fields(string(bufLine1[0:]))
+		splitClientLine1 = strings.Fields(string(clientLine1[0:]))
 
 		//Read second line, containing the value entered at the client
-		if cLine1[0] == "set" || cLine1[0] == "cas" {
-			_, genError = conn.Read(bufLine2[0:])
+		if splitClientLine1[0] == "set" || splitClientLine1[0] == "cas" {
+			_, genError = conn.Read(clientLine2[0:])
 			checkError(genError, conn)
 
 			//Clean the line read, off trailing carriage return and newline
-			cLine2 = strings.TrimSpace(string(bufLine2[0:]))
-			if strings.Contains(cLine2, "\r") {
-				cLine2 = strings.Trim(cLine2, "\r")
+			trimmedClientLine2 = strings.TrimSpace(string(clientLine2[0:]))
+			if strings.Contains(trimmedClientLine2, "\r") {
+				trimmedClientLine2 = strings.Trim(trimmedClientLine2, "\r")
 			}
-			if strings.Contains(cLine2, "\n") {
-				cLine2 = strings.Trim(cLine2, "\n")
+			if strings.Contains(trimmedClientLine2, "\n") {
+				trimmedClientLine2 = strings.Trim(trimmedClientLine2, "\n")
 			}
 
 		}
 
 		//Select action based on the first word of the query entered at the client
-		switch cLine1[0] {
+		switch splitClientLine1[0] {
 
 		case "set":
 			//The "Space" count for a legal set query should be minimum 3
 			if count >= 3 {
 
-				counter.Lock()
-				counter.kvMap[cLine1[1]] = map[string]string{"exptime": cLine1[2], "numbytes": cLine1[3], "value": cLine2, "version": strconv.FormatInt(rand.Int63(), 10)}
-				counter.Unlock()
+				kvMapStruct.Lock()
+				kvMapStruct.kvMap[splitClientLine1[1]] = map[string]string{"exptime": splitClientLine1[2], "numbytes": splitClientLine1[3], "value": trimmedClientLine2, "version": strconv.FormatInt(rand.Int63(), 10)}
+				kvMapStruct.Unlock()
 
 				//The Key-Value has pair has 0 expiry time, so it should never expire.
-				counter.RLock()
-				if counter.kvMap[cLine1[1]]["exptime"] != "0" {
-					counter.RUnlock()
-					go processExpTime(cLine1[1])
+				kvMapStruct.RLock()
+				if kvMapStruct.kvMap[splitClientLine1[1]]["exptime"] != "0" {
+					kvMapStruct.RUnlock()
+					go processExpTime(splitClientLine1[1])
 				} else {
-					counter.RUnlock()
+					kvMapStruct.RUnlock()
 				}
 				//Handle the "[noreply]" case
 				if count == 4 {
 					//Invalid argument instead of "[noreply]"
-					if strings.Contains(cLine1[4], "[noreply]") != true {
+					if strings.Contains(splitClientLine1[4], "[noreply]") != true {
 
-						counter.RUnlock()
+						kvMapStruct.RUnlock()
 						//CommandLine Formatting Error
 						ERRCMDERR(conn)
 					}
 				} else {
-					counter.RLock()
-					_, genError = conn.Write([]byte("OK " + counter.kvMap[cLine1[1]]["version"] + "\n"))
-					counter.RUnlock()
+					kvMapStruct.RLock()
+					_, genError = conn.Write([]byte("OK " + kvMapStruct.kvMap[splitClientLine1[1]]["version"] + "\n"))
+					kvMapStruct.RUnlock()
 				}
 			} else {
-				counter.RUnlock()
+				kvMapStruct.RUnlock()
 				//CommandLine Formatting Error
 				ERRCMDERR(conn)
 			}
@@ -122,19 +122,19 @@ func processClient(conn net.Conn) {
 			//The "Space" count for a legal get query should be 1
 			if count == 1 {
 
-				counter.RLock()
-				if _, ok := counter.kvMap[strings.Trim(cLine1[1], "\r\n")]["value"]; ok {
-					_, genError = conn.Write([]byte("VALUE \n" + counter.kvMap[strings.Trim(cLine1[1], "\r\n")]["numbytes"] + "\n" + counter.kvMap[strings.Trim(cLine1[1], "\r\n")]["value"]))
-					counter.RUnlock()
+				kvMapStruct.RLock()
+				if _, ok := kvMapStruct.kvMap[strings.Trim(splitClientLine1[1], "\r\n")]["value"]; ok {
+					_, genError = conn.Write([]byte("VALUE \n" + kvMapStruct.kvMap[strings.Trim(splitClientLine1[1], "\r\n")]["numbytes"] + "\n" + kvMapStruct.kvMap[strings.Trim(splitClientLine1[1], "\r\n")]["value"]))
+					kvMapStruct.RUnlock()
 				} else {
 
-					counter.RUnlock()
+					kvMapStruct.RUnlock()
 					//Key Not Found Error
 					ERRNOTFOUND(conn)
 				}
 			} else {
 
-				counter.RUnlock()
+				kvMapStruct.RUnlock()
 				//CommandLine Formatting Error
 				ERRCMDERR(conn)
 			}
@@ -143,19 +143,19 @@ func processClient(conn net.Conn) {
 			//The "Space" count for a legal get query should be 1
 			if count == 1 {
 
-				counter.RLock()
-				if _, ok := counter.kvMap[strings.Trim(cLine1[1], "\r\n")]["value"]; ok {
-					_, genError = conn.Write([]byte("VALUE \n" + counter.kvMap[strings.Trim(cLine1[1], "\r\n")]["version"] + "\t" + counter.kvMap[strings.Trim(cLine1[1], "\r\n")]["exptime"] + "\t" + counter.kvMap[strings.Trim(cLine1[1], "\r\n")]["numbytes"] + "\n" + counter.kvMap[strings.Trim(cLine1[1], "\r\n")]["value"]))
-					counter.RUnlock()
+				kvMapStruct.RLock()
+				if _, ok := kvMapStruct.kvMap[strings.Trim(splitClientLine1[1], "\r\n")]["value"]; ok {
+					_, genError = conn.Write([]byte("VALUE \n" + kvMapStruct.kvMap[strings.Trim(splitClientLine1[1], "\r\n")]["version"] + "\t" + kvMapStruct.kvMap[strings.Trim(splitClientLine1[1], "\r\n")]["exptime"] + "\t" + kvMapStruct.kvMap[strings.Trim(splitClientLine1[1], "\r\n")]["numbytes"] + "\n" + kvMapStruct.kvMap[strings.Trim(splitClientLine1[1], "\r\n")]["value"]))
+					kvMapStruct.RUnlock()
 				} else {
 
-					counter.RUnlock()
+					kvMapStruct.RUnlock()
 					//Key Not Found Error
 					ERRNOTFOUND(conn)
 				}
 			} else {
 
-				counter.RUnlock()
+				kvMapStruct.RUnlock()
 				//CommandLine Formatting Error
 				ERRCMDERR(conn)
 			}
@@ -164,51 +164,51 @@ func processClient(conn net.Conn) {
 			//The "Space" count for a legal cas query should be 4
 			if count >= 4 {
 
-				counter.RLock()
-				if cLine1[3] == counter.kvMap[cLine1[1]]["version"] {
+				kvMapStruct.RLock()
+				if splitClientLine1[3] == kvMapStruct.kvMap[splitClientLine1[1]]["version"] {
 
-					counter.RUnlock()
+					kvMapStruct.RUnlock()
 
-					counter.Lock()
-					counter.kvMap[cLine1[1]]["value"] = cLine2
-					counter.kvMap[cLine1[1]]["exptime"] = cLine1[2]
-					counter.kvMap[cLine1[1]]["numbytes"] = cLine1[4]
-					counter.kvMap[cLine1[1]]["version"] = strconv.FormatInt(rand.Int63(), 10)
-					counter.Unlock()
+					kvMapStruct.Lock()
+					kvMapStruct.kvMap[splitClientLine1[1]]["value"] = trimmedClientLine2
+					kvMapStruct.kvMap[splitClientLine1[1]]["exptime"] = splitClientLine1[2]
+					kvMapStruct.kvMap[splitClientLine1[1]]["numbytes"] = splitClientLine1[4]
+					kvMapStruct.kvMap[splitClientLine1[1]]["version"] = strconv.FormatInt(rand.Int63(), 10)
+					kvMapStruct.Unlock()
 
 					//The Key-Value has pair has 0 expiry time, so it should never expire.
-					counter.RLock()
-					if counter.kvMap[cLine1[1]]["exptime"] != "0" {
+					kvMapStruct.RLock()
+					if kvMapStruct.kvMap[splitClientLine1[1]]["exptime"] != "0" {
 
-						counter.RUnlock()
-						go processExpTime(cLine1[1])
+						kvMapStruct.RUnlock()
+						go processExpTime(splitClientLine1[1])
 					} else {
-						counter.RUnlock()
+						kvMapStruct.RUnlock()
 					}
 					//Handle the "[noreply]" case
 					if count == 5 {
 						//Invalid argument instead of "[noreply]"
-						if strings.Contains(cLine1[5], "[noreply]") != true {
+						if strings.Contains(splitClientLine1[5], "[noreply]") != true {
 
-							counter.RUnlock()
+							kvMapStruct.RUnlock()
 							//CommandLine Formatting Error
 							ERRCMDERR(conn)
 						}
 					} else {
-						counter.RLock()
-						_, genError = conn.Write([]byte("OK " + counter.kvMap[cLine1[1]]["version"] + "\n"))
-						counter.RUnlock()
+						kvMapStruct.RLock()
+						_, genError = conn.Write([]byte("OK " + kvMapStruct.kvMap[splitClientLine1[1]]["version"] + "\n"))
+						kvMapStruct.RUnlock()
 						checkError(genError, conn)
 					}
 				} else {
 
-					counter.RUnlock()
+					kvMapStruct.RUnlock()
 					//Version Mismatch. Value not updated.
 					ERR_VERSION(conn)
 				}
 			} else {
 
-				counter.RUnlock()
+				kvMapStruct.RUnlock()
 				//CommandLine Formatting Error
 				ERRCMDERR(conn)
 			}
@@ -216,27 +216,27 @@ func processClient(conn net.Conn) {
 		case "delete":
 			//The "Space" count for a legal delete query should be 1
 			if count == 1 {
-				counter.RLock()
-				if _, ok := counter.kvMap[strings.Trim(cLine1[1], "\r\n")]["value"]; ok {
+				kvMapStruct.RLock()
+				if _, ok := kvMapStruct.kvMap[strings.Trim(splitClientLine1[1], "\r\n")]["value"]; ok {
 
-					counter.RUnlock()
+					kvMapStruct.RUnlock()
 
-					counter.Lock()
-					delete(counter.kvMap, cLine1[1])
-					counter.Unlock()
+					kvMapStruct.Lock()
+					delete(kvMapStruct.kvMap, splitClientLine1[1])
+					kvMapStruct.Unlock()
 
 					_, genError := conn.Write([]byte("DELETED" + "\n"))
 					checkError(genError, conn)
 
 				} else {
 
-					counter.RUnlock()
+					kvMapStruct.RUnlock()
 					//Key Not Found Error
 					ERRNOTFOUND(conn)
 				}
 			} else {
 
-				counter.RUnlock()
+				kvMapStruct.RUnlock()
 				//CommandLine Formatting Error
 				ERRCMDERR(conn)
 			}
@@ -257,22 +257,22 @@ func processExpTime(key string) {
 
 	ticker := time.NewTicker(time.Millisecond * 1000)
 	var t time.Time
-	counter.RLock()
-	exptime, _ := strconv.Atoi(counter.kvMap[key]["exptime"])
-	counter.RUnlock()
+	kvMapStruct.RLock()
+	exptime, _ := strconv.Atoi(kvMapStruct.kvMap[key]["exptime"])
+	kvMapStruct.RUnlock()
 	go func() {
 		for t = range ticker.C {
 			exptime = exptime - 1
 			// Check for case when the key value pair is deleted or not found
-			counter.RLock()
-			if _, ok := counter.kvMap[key]["exptime"]; ok {
-				counter.RUnlock()
+			kvMapStruct.RLock()
+			if _, ok := kvMapStruct.kvMap[key]["exptime"]; ok {
+				kvMapStruct.RUnlock()
 
-				counter.Lock()
-				counter.kvMap[key]["exptime"] = strconv.Itoa(exptime)
-				counter.Unlock()
+				kvMapStruct.Lock()
+				kvMapStruct.kvMap[key]["exptime"] = strconv.Itoa(exptime)
+				kvMapStruct.Unlock()
 			} else {
-				counter.RUnlock()
+				kvMapStruct.RUnlock()
 			}
 
 		}
@@ -280,9 +280,9 @@ func processExpTime(key string) {
 	time.Sleep(time.Duration(exptime) * time.Second)
 	ticker.Stop()
 
-	counter.Lock()
-	delete(counter.kvMap, key)
-	counter.Unlock()
+	kvMapStruct.Lock()
+	delete(kvMapStruct.kvMap, key)
+	kvMapStruct.Unlock()
 
 }
 
