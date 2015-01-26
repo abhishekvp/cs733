@@ -1,24 +1,61 @@
-Assignment 1. A memcached clone
+Assignment 1. A Memcached Clone
 ===============================
 
-This key-value store is loosely based on MemCached. It has been developed using Go.
+This key-value store is a client-server architecture based network application. It is loosely based on Memcached. TCP is used for communication. It has been developed using Go. 
 
-Testing Instructions
----------------------
+This is the first assignment of the course CS733 - Engineering a Cloud at IIT Bombay.
+
+### Testing Instructions
+
 * Run the following on your terminal :
 
   `go get github.com/abhishekvp/cs733/assignment1/`
 
   `go test github.com/abhishekvp/cs733/assignment1/server`
   
-To Do
------
-* ~~Make map concurrency-safe~~
-* Add more automated tests
-* Add detailed documentation to README.md
+### Included TestCases
 
-Protocol Specification
------------------------
+* Set a key value.
+* Get a value.
+
+### To Do
+
+* ~~Make map concurrency-safe~~
+* ~~Add detailed documentation to README.md~~
+* Add more automated tests
+
+
+### Usage
+
+* Change directory to cs733/assignment1/server and run the following on the terminal to start the server and listen on port 9000:
+
+  `go run server.go`
+
+* Keeping the terminal used above open, open another instance of terminal and run the following to connect to the server:
+
+  `telnet <Server IP Address><"localhost" for testing locally> 9000`
+
+Once connected, the client can issue commands to server namely - SET, GET, GETM, CAS, DELETE, as per protocol specification
+
+### Mechanism
+
+* The server listens on port 9000 for client commands. The client can connect to the server using telnet.
+* Once connected, the client can issue SET, GET, GETM, CAS, DELETE commands to the server.
+* The server stores the key-value in a map of maps.
+
+```
+  /*
+  * Map of Maps to store key-values.
+  * kvMap[key]["exptime"]
+  * kvMap[key]["value"]
+  * kvMap[key]["numbytes"]
+  * kvMap[key]["version"]
+  */
+```
+* The Map is made concurrency safe using Mutex - `sync.RWMutex` from the `sync` package in Go.
+
+### Protocol Specification
+
 * Set: create the key-value pair, or update the value if it already exists.
 
   `set <key> <exptime> <numbytes> [noreply]\r\n`
@@ -68,6 +105,12 @@ Protocol Specification
   Server response (if successful)
 
   `DELETED\r\n`
+  
+#### Errors Returned
+* `ERRCMDERR` - Commandline Formatting Error
+* `ERRNOTFOUND` - Key Not Found Error
+* `ERR_VERSION` - Version Mismatch Error
+* `ERR_INTERNAL` - Internal Error
 
 
 
