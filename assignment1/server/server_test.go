@@ -20,8 +20,8 @@ func TestMain(t *testing.T) {
 	//Test server for a single client
 	clientTest(t)
 
-	//Test server for 1000 clients
-	for i:=0; i<10; i++{
+	//Test server for 100 clients
+	for i:=0; i<100; i++{
 
 		go func(){
 			clientTest(t)
