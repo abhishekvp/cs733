@@ -13,7 +13,7 @@ This is the first assignment of the course CS733 - Engineering a Cloud at IIT Bo
 
   `go test github.com/abhishekvp/cs733/assignment1/server`
   
-### Included TestCases
+### Included Test Cases
 
 * Set a key-value.
 * Set - Invalid Commandline Formatting
@@ -26,7 +26,7 @@ This is the first assignment of the course CS733 - Engineering a Cloud at IIT Bo
 * Compare and Swap - Invalid Version Error
 * Delete a key-value
 * Delete - Invalid Key request
-* Concurrency Test(all above tests)for 100 clients
+* Concurrency Test(all above tests) for 100 clients
 
 Time required for tests to complete: 4 - 5 seconds
 
