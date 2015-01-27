@@ -56,34 +56,61 @@ func Test_Cases(t *testing.T) {
 	serverReply := <-ch
 	assert("OK", strings.Fields(string(serverReply))[0], t)
 
-	//#2 TestCase GET
+	//To be used for next test - CAS
+	version := strings.Fields(string(serverReply))[1]
+
+	//#2 TestCase CAS
+	serverCmd("cas foo 0 " + version + " 2\n")
+	time.Sleep(time.Duration(1) * time.Second)
+	serverCmd("changedBar")
+	serverReply = <-ch
+	assert("OK", strings.Fields(string(serverReply))[0], t)
+
+	//#3 TestCase GET
 	serverCmd("get foo\n")
 	serverReply = <-ch
-	assert("bar", strings.Fields(string(serverReply))[2], t)
+	assert("changedBar", strings.Fields(string(serverReply))[2], t)
 
-	//#3 TestCase GETM
+	//#4 TestCase GETM
 	serverCmd("getm foo\n")
 	serverReply = <-ch
-	assert("VALUE \r\n([0-9]*)"+"\t"+"0"+"\t"+"1"+"\r\n"+"bar", string(serverReply), t)
+	assert("VALUE \r\n([0-9]*)"+"\t"+"0"+"\t"+"2"+"\r\n"+"changedBar", string(serverReply), t)
 
-	//#4 TestCase SET Error
+	//#5 TestCase DELETE
+	serverCmd("delete foo\n")
+	serverReply = <-ch
+	assert("DELETED", strings.Fields(string(serverReply))[0], t)
+
+	//#6 TestCase CAS Version Error
+	serverCmd("cas foo 0 1000 2\n")
+	time.Sleep(time.Duration(1) * time.Second)
+	serverCmd("changedBar")
+	serverReply = <-ch
+	assert("ERR_VERSION", strings.Fields(string(serverReply))[0], t)
+
+	//#7 TestCase SET Error
 	serverCmd("set inv 0\n")
 	time.Sleep(time.Duration(1) * time.Second)
 	serverCmd("test")
 	serverReply = <-ch
 	assert("ERRCMDERR", strings.Fields(string(serverReply))[0], t)
 
-	//#5 TestCase GET Key Not Found Error
-	serverCmd("get bar\n")
+	//#8 TestCase GET Key Not Found Error
+	serverCmd("get foo\n")
 	serverReply = <-ch
 	assert("ERRNOTFOUND", strings.Fields(string(serverReply))[0], t)
 
-	//#6 TestCase GETM Key Not Found Error
+	//#9 TestCase Delete Key Not Found Error
+	serverCmd("delete foo\n")
+	serverReply = <-ch
+	assert("ERRNOTFOUND", strings.Fields(string(serverReply))[0], t)
+
+	//#10 TestCase GETM Key Not Found Error
 	serverCmd("getm bar\n")
 	serverReply = <-ch
 	assert("ERRNOTFOUND", strings.Fields(string(serverReply))[0], t)
 
-	//#7 TestCase GET Error
+	//#11 TestCase GET Error
 	serverCmd("get\n")
 	serverReply = <-ch
 	assert("ERRCMDERR", strings.Fields(string(serverReply))[0], t)
