@@ -15,7 +15,7 @@ var conn net.Conn
 
 func Test_Cases(t *testing.T) {
 	
-	go main()
+	//go main()
 
 	//Connect to the Server
 
@@ -29,39 +29,64 @@ func Test_Cases(t *testing.T) {
 		os.Exit(1)
 	}
 
-	ch := make(chan []byte)
+	ch := make(chan string)
 	// Start a goroutine to read from our net connection
-	go func(ch chan []byte) {
+	go func(ch chan string) {
 		for {
+			
+			data := make([]byte, 1024)
 			// try to read the data
-			data := make([]byte, 512)
-			_, err := conn.Read(data)
+			size, err := conn.Read(data)
+
 			if err != nil {
-				os.Exit(1)
+				t.Error(err)
 			}
+
 			// send data if we read some.
-			ch <- data
+			data = data[:size]
+			ch <- string(data)
+			
 		}
 	}(ch)
 
 	//#1 TestCase SET
-	serverCmd("set foo 10000 1\n")
+	serverCmd("set foo 0 1\n")
 	time.Sleep(time.Duration(1) * time.Second)
 	serverCmd("bar")
-	serverReply := make([]byte, 512)
-	serverReply = <-ch
+	serverReply := <-ch
 	assert("OK", strings.Fields(string(serverReply))[0], t)
-
-	time.Sleep(time.Duration(1) * time.Second)
 
 	//#2 TestCase GET
 	serverCmd("get foo\n")
-	serverReply = make([]byte, 512)
 	serverReply = <-ch
 	assert("bar", strings.Fields(string(serverReply))[2], t)
-	time.Sleep(time.Duration(1) * time.Second)
 
-	conn.Close()
+	//#3 TestCase GETM
+	serverCmd("getm foo\n")
+	serverReply = <-ch
+	assert("VALUE \r\n([0-9]*)"+"\t" + "0" + "\t" + "1" + "\r\n" +"bar", string(serverReply), t)
+
+	//#4 TestCase SET Error
+	serverCmd("set inv 0\n")
+	time.Sleep(time.Duration(1) * time.Second)
+	serverCmd("test")
+	serverReply = <-ch
+	assert("ERRCMDERR", strings.Fields(string(serverReply))[0], t)
+
+	//#5 TestCase GET Key Not Found Error
+	serverCmd("get bar\n")
+	serverReply = <-ch
+	assert("ERRNOTFOUND", strings.Fields(string(serverReply))[0], t)
+
+	//#6 TestCase GETM Key Not Found Error
+	serverCmd("getm bar\n")
+	serverReply = <-ch
+	assert("ERRNOTFOUND", strings.Fields(string(serverReply))[0], t)
+
+	//#7 TestCase GET Error
+	serverCmd("get\n")
+	serverReply = <-ch
+	assert("ERRCMDERR", strings.Fields(string(serverReply))[0], t)
 
 }
 

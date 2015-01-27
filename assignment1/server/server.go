@@ -109,7 +109,7 @@ func processClient(conn net.Conn) {
 					}
 				} else {
 					kvMapStruct.RLock()
-					_, genError = conn.Write([]byte("OK " + kvMapStruct.kvMap[splitClientLine1[1]]["version"] + "\n"))
+					_, genError = conn.Write([]byte("OK " + kvMapStruct.kvMap[splitClientLine1[1]]["version"] + "\r\n"))
 					kvMapStruct.RUnlock()
 				}
 			} else {
@@ -124,7 +124,7 @@ func processClient(conn net.Conn) {
 
 				kvMapStruct.RLock()
 				if _, ok := kvMapStruct.kvMap[strings.Trim(splitClientLine1[1], "\r\n")]["value"]; ok {
-					_, genError = conn.Write([]byte("VALUE \n" + kvMapStruct.kvMap[strings.Trim(splitClientLine1[1], "\r\n")]["numbytes"] + "\n" + kvMapStruct.kvMap[strings.Trim(splitClientLine1[1], "\r\n")]["value"]))
+					_, genError = conn.Write([]byte("VALUE \r\n" + kvMapStruct.kvMap[strings.Trim(splitClientLine1[1], "\r\n")]["numbytes"] + "\r\n" + kvMapStruct.kvMap[strings.Trim(splitClientLine1[1], "\r\n")]["value"]))
 					kvMapStruct.RUnlock()
 				} else {
 
@@ -145,7 +145,7 @@ func processClient(conn net.Conn) {
 
 				kvMapStruct.RLock()
 				if _, ok := kvMapStruct.kvMap[strings.Trim(splitClientLine1[1], "\r\n")]["value"]; ok {
-					_, genError = conn.Write([]byte("VALUE \n" + kvMapStruct.kvMap[strings.Trim(splitClientLine1[1], "\r\n")]["version"] + "\t" + kvMapStruct.kvMap[strings.Trim(splitClientLine1[1], "\r\n")]["exptime"] + "\t" + kvMapStruct.kvMap[strings.Trim(splitClientLine1[1], "\r\n")]["numbytes"] + "\n" + kvMapStruct.kvMap[strings.Trim(splitClientLine1[1], "\r\n")]["value"]))
+					_, genError = conn.Write([]byte("VALUE \r\n" + kvMapStruct.kvMap[strings.Trim(splitClientLine1[1], "\r\n")]["version"] + "\t" + kvMapStruct.kvMap[strings.Trim(splitClientLine1[1], "\r\n")]["exptime"] + "\t" + kvMapStruct.kvMap[strings.Trim(splitClientLine1[1], "\r\n")]["numbytes"] + "\r\n" + kvMapStruct.kvMap[strings.Trim(splitClientLine1[1], "\r\n")]["value"]))
 					kvMapStruct.RUnlock()
 				} else {
 
@@ -196,7 +196,7 @@ func processClient(conn net.Conn) {
 						}
 					} else {
 						kvMapStruct.RLock()
-						_, genError = conn.Write([]byte("OK " + kvMapStruct.kvMap[splitClientLine1[1]]["version"] + "\n"))
+						_, genError = conn.Write([]byte("OK " + kvMapStruct.kvMap[splitClientLine1[1]]["version"] + "\r\n"))
 						kvMapStruct.RUnlock()
 						checkError(genError, conn)
 					}
@@ -225,7 +225,7 @@ func processClient(conn net.Conn) {
 					delete(kvMapStruct.kvMap, splitClientLine1[1])
 					kvMapStruct.Unlock()
 
-					_, genError := conn.Write([]byte("DELETED" + "\n"))
+					_, genError := conn.Write([]byte("DELETED" + "\r\n"))
 					checkError(genError, conn)
 
 				} else {
@@ -289,25 +289,25 @@ func processExpTime(key string) {
 //Error handler
 func checkError(genError error, conn net.Conn) {
 	if genError != nil {
-		err := "ERR_INTERNAL\n"
+		err := "ERR_INTERNAL\r\n"
 		_, genError = conn.Write([]byte(err))
 	}
 }
 
 func ERRCMDERR(conn net.Conn) {
 	var genError error
-	err := "ERRCMDERR\n"
+	err := "ERRCMDERR\r\n"
 	_, genError = conn.Write([]byte(err))
 }
 
 func ERRNOTFOUND(conn net.Conn) {
 	var genError error
-	err := "ERRNOTFOUND\n"
+	err := "ERRNOTFOUND\r\n"
 	_, genError = conn.Write([]byte(err))
 }
 
 func ERR_VERSION(conn net.Conn) {
 	var genError error
-	err := "ERR_VERSION\n"
+	err := "ERR_VERSION\r\n"
 	_, genError = conn.Write([]byte(err))
 }
