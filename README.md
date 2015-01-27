@@ -30,14 +30,6 @@ This is the first assignment of the course CS733 - Engineering a Cloud at IIT Bo
 
 Time required for tests to comlpete: 4 - 5 seconds
 
-
-### To Do
-
-* ~~Make map concurrency-safe~~
-* ~~Add detailed documentation to README.md~~
-* ~~Add automated test for Concurrency~~
-
-
 ### Usage
 
 * Change directory to cs733/assignment1/server and run the following on the terminal to start the server and listen on port 9000:
@@ -65,7 +57,9 @@ Once connected, the client can issue commands to server namely - SET, GET, GETM,
   * kvMap[key]["version"]
   */
 ```
+* The expiry is handled by making use of goroutines. Once a key-value is set or cas-ed, a goroutine is invoked to update the expiry time in the Map and delete the key-value once the expiry time is up.
 * The Map is made concurrency safe using Mutex - `sync.RWMutex` from the `sync` package in Go.
+
 
 ### Protocol Specification
 
