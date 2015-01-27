@@ -14,8 +14,8 @@ const servAddr string = "localhost:9000"
 var conn net.Conn
 
 func Test_Cases(t *testing.T) {
-	
-	//go main()
+
+	go main()
 
 	//Connect to the Server
 
@@ -33,7 +33,7 @@ func Test_Cases(t *testing.T) {
 	// Start a goroutine to read from our net connection
 	go func(ch chan string) {
 		for {
-			
+
 			data := make([]byte, 1024)
 			// try to read the data
 			size, err := conn.Read(data)
@@ -45,7 +45,7 @@ func Test_Cases(t *testing.T) {
 			// send data if we read some.
 			data = data[:size]
 			ch <- string(data)
-			
+
 		}
 	}(ch)
 
@@ -64,7 +64,7 @@ func Test_Cases(t *testing.T) {
 	//#3 TestCase GETM
 	serverCmd("getm foo\n")
 	serverReply = <-ch
-	assert("VALUE \r\n([0-9]*)"+"\t" + "0" + "\t" + "1" + "\r\n" +"bar", string(serverReply), t)
+	assert("VALUE \r\n([0-9]*)"+"\t"+"0"+"\t"+"1"+"\r\n"+"bar", string(serverReply), t)
 
 	//#4 TestCase SET Error
 	serverCmd("set inv 0\n")
