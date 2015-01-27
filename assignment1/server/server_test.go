@@ -21,7 +21,7 @@ func TestMain(t *testing.T) {
 	clientTest(t)
 
 	//Test server for 1000 clients
-	for i:=0; i<1000; i++{
+	for i:=0; i<10; i++{
 
 		go func(){
 			clientTest(t)
