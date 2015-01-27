@@ -26,9 +26,9 @@ This is the first assignment of the course CS733 - Engineering a Cloud at IIT Bo
 * Compare and Swap - Invalid Version Error
 * Delete a key-value
 * Delete - Invalid Key request
-* Concurrency Test(all above tests)for 1000 clients
+* Concurrency Test(all above tests)for 100 clients
 
-Time required for tests to comlpete: 4-5 seconds
+Time required for tests to comlpete: 4 - 5 seconds
 
 
 ### To Do

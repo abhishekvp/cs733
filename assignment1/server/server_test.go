@@ -45,6 +45,9 @@ func clientTest(t *testing.T) {
 		os.Exit(1)
 	}
 
+	/* Referred StackOverFlow Answer to use channel and read from connection
+	*  URL: http://stackoverflow.com/questions/9680812/how-can-i-make-net-read-wait-for-input-in-golang
+	*/
 	ch := make(chan string)
 	// Start a goroutine to read from our net connection
 	go func(ch chan string) {
