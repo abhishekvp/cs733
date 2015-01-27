@@ -13,12 +13,28 @@ const servAddr string = "localhost:9000"
 
 var conn net.Conn
 
-func Test_Cases(t *testing.T) {
+func TestMain(t *testing.T) {
 
 	go main()
 
-	//Connect to the Server
+	//Test server for a single client
+	clientTest(t)
 
+	//Test server for 1000 clients
+	for i:=0; i<1000; i++{
+
+		go func(){
+			clientTest(t)
+		}()
+
+	}
+}
+
+	
+
+func clientTest(t *testing.T) {	
+	
+	//Connect to the Server
 	tcpAddr, err := net.ResolveTCPAddr("tcp", servAddr)
 	if err != nil {
 		os.Exit(1)
