@@ -49,24 +49,35 @@ func processClient(conn net.Conn) {
 
 	for {
 
-		var clientLine1 [512]byte
-		var clientLine2 [512]byte
+		clientInp1:= make([]byte, 512)
+		clientInp2:= make([]byte, 512)
+
 		var splitClientLine1 []string
 		var trimmedClientLine2 string
 
-		// Read First Line from the client
-		_, genError := conn.Read(clientLine1[0:])
+		// Read Bytes from the client
+		size, genError := conn.Read(clientInp1[0:])
 		checkError(genError, conn)
 
-		//Count the number of spaces in the line received from the client
-		count := strings.Count(string(clientLine1[0:]), " ")
+		clientInp1 = clientInp1[:size]
 
-		splitClientLine1 = strings.Fields(string(clientLine1[0:]))
+		//Extract the first line
+		clientLine1 :=  strings.Split(string(clientInp1),"\r\n")[0];
+
+		//Count the number of spaces in the line received from the client
+		count := strings.Count(clientLine1, " ")
+
+		splitClientLine1 = strings.Fields(clientLine1)
 
 		//Read second line, containing the value entered at the client
 		if splitClientLine1[0] == "set" || splitClientLine1[0] == "cas" {
-			_, genError = conn.Read(clientLine2[0:])
+			size, genError = conn.Read(clientInp2[0:])
 			checkError(genError, conn)
+
+			clientInp2 = clientInp2[:size]
+
+			//Extract the second line
+			clientLine2 := strings.Split(string(clientInp2),"\r\n")[0];
 
 			//Clean the line read, off trailing carriage return and newline
 			trimmedClientLine2 = strings.TrimSpace(string(clientLine2[0:]))
@@ -124,7 +135,7 @@ func processClient(conn net.Conn) {
 
 				kvMapStruct.RLock()
 				if _, ok := kvMapStruct.kvMap[strings.Trim(splitClientLine1[1], "\r\n")]["value"]; ok {
-					_, genError = conn.Write([]byte("VALUE \r\n" + kvMapStruct.kvMap[strings.Trim(splitClientLine1[1], "\r\n")]["numbytes"] + "\r\n" + kvMapStruct.kvMap[strings.Trim(splitClientLine1[1], "\r\n")]["value"]))
+					_, genError = conn.Write([]byte("VALUE \r\n" + kvMapStruct.kvMap[strings.Trim(splitClientLine1[1], "\r\n")]["numbytes"] + "\r\n" + kvMapStruct.kvMap[strings.Trim(splitClientLine1[1], "\r\n")]["value"]+"\r\n"))
 					kvMapStruct.RUnlock()
 				} else {
 
@@ -145,7 +156,7 @@ func processClient(conn net.Conn) {
 
 				kvMapStruct.RLock()
 				if _, ok := kvMapStruct.kvMap[strings.Trim(splitClientLine1[1], "\r\n")]["value"]; ok {
-					_, genError = conn.Write([]byte("VALUE \r\n" + kvMapStruct.kvMap[strings.Trim(splitClientLine1[1], "\r\n")]["version"] + "\t" + kvMapStruct.kvMap[strings.Trim(splitClientLine1[1], "\r\n")]["exptime"] + "\t" + kvMapStruct.kvMap[strings.Trim(splitClientLine1[1], "\r\n")]["numbytes"] + "\r\n" + kvMapStruct.kvMap[strings.Trim(splitClientLine1[1], "\r\n")]["value"]))
+					_, genError = conn.Write([]byte("VALUE \r\n" + kvMapStruct.kvMap[strings.Trim(splitClientLine1[1], "\r\n")]["version"] + "\t" + kvMapStruct.kvMap[strings.Trim(splitClientLine1[1], "\r\n")]["exptime"] + "\t" + kvMapStruct.kvMap[strings.Trim(splitClientLine1[1], "\r\n")]["numbytes"] + "\r\n" + kvMapStruct.kvMap[strings.Trim(splitClientLine1[1], "\r\n")]["value"]+"\r\n"))
 					kvMapStruct.RUnlock()
 				} else {
 
