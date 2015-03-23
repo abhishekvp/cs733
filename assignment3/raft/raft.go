@@ -4,6 +4,8 @@ import (
 	"strconv"
 	"fmt"
 	"math/rand"
+	"time"
+	"sync"
 )
 
 var raft Raft
@@ -18,161 +20,7 @@ type LogEntry interface {
 	Committed() bool
 }
 
-var ServersMap map[int]Raft
-
-type Vote {
-	OrgServerId int
-	DestServerId int
-	VoteValue bool
-	OrgServerTerm int
-}
-
-type Event struct {
-	evType string
-	payload interface{}
-}
-
-func (raft Raft) Loop() {
-    state := follower; // begin life as a follower
-
-    for {
-        switch (state)  {
-        case follower: state = raft.follower()
-        case candidate: state = raft.candidate()
-        case leader: state = raft.leader()
-        default: return
-        }
-    }
-}
-
-func (raft Raft) follower() {
-
-    timer := time.NewTimer(time.Second*rand.Intn(10)) // to become candidate if no append reqs
-
-    go func() {
-    	for {
-    	<- timer.C
-    	raft.EventCh = Event{"Timeout",nil}
-    	}
-    	}()
-
-    for {
-        event := <- raft.EventCh
-        switch event.(type) {
-        case "ClientAppend":
-        	fmt.Println("S"+strconv.Itoa(raft.thisServerId) + ": Rxd Command, But I am a Follower. NOACT" )
-            // Do not handle clients in follower mode. Send it back up the
-            // pipe with committed = false
-            //ev.logEntry.commited = false
-            //commitCh <- ev.logentry
-        case "VoteRequest":
-        	msg = event.payload
-        	fmt.Println("S"+strconv.Itoa(raft.thisServerId) + ": Rxd Vote Request from , But I am a Follower. NOACT" )
- 
-            if msg.OrgServerTerm < raft.currentTerm {
-            	raft.EventCh = Event{"VoteResponse", Vote{raft.thisServerId, msg.DestServerId, false, raft.currentTerm}}
-            }
-            else if msg.OrgServerTerm > raft.currentTerm {
-            	raft.currentTerm = msg.OrgServerTerm
-            }
-            //if not already voted in my term
-            //    reset timer
-             //   reply ok to event.msg.serverid
-            //    remember term, leader id (either in log or in separate file)
-        case "AppendRPC":
-           // reset timer
-           // if msg.term < currentterm, ignore
-           // reset heartbeat timer
-           // upgrade to event.msg.term if necessary
-           // if prev entries of my log and event.msg match
-           //    add to disk log
-            //   flush disk log
-            //   respond ok to event.msg.serverid
-            else
-               respond err.
-        case "Timeout": 
-        return candidate  // new state back to loop()
-    }
-}
-}
-
-func (raft Raft) leader() {
-}
-
-func (raft Raft) candidate() {
-	//Self Vote
-	votesRxd:=1
-    go func(){
-    	for _, server := range raft.ClusterConfig.Servers {
-        	if server.Id != raft.thisServerId{
-        			ServersMap[server.Id].EventCh <- Event{"VoteRequest",Vote{raft.thisServerId, server.Id, false, raft.currentTerm}}
-        			fmt.Println("S"+strconv.Itoa(raft.thisServerId)+" Sending vote request to "+strconv.Itoa(server.Id))      		
-        	}
-	    }
-	}()
-
-	    for {
-        event := <- raft.EventCh
-        switch event.(type) {
-        case "ClientAppend":
-        	fmt.Println("S"+strconv.Itoa(raft.thisServerId) + ": Rxd Command, But I am a Candidate. NOACT" )
-            // Do not handle clients in follower mode. Send it back up the
-            // pipe with committed = false
-            //ev.logEntry.commited = false
-            //commitCh <- ev.logentry
-        case "VoteRequest":
-        	fmt.Println("S"+strconv.Itoa(raft.thisServerId) + ": Rxd Vote Request from , But I am a CAndi. NOACT" )
-            msg = event.payload
-            if msg.OrgServerTerm < raft.currentTerm {
-            	raft.EventCh = Event{"VoteResponse", Vote{raft.thisServerId, msg.DestServerId, false, raft.currentTerm}}
-            }
-            else if msg.OrgServerTerm > raft.currentTerm {
-            	raft.currentTerm = msg.OrgServerTerm
-            }
-            //if not already voted in my term
-            //    reset timer
-             //   reply ok to event.msg.serverid
-            //    remember term, leader id (either in log or in separate file)
-        case "AppendRPC":
-           // reset timer
-           // if msg.term < currentterm, ignore
-           // reset heartbeat timer
-           // upgrade to event.msg.term if necessary
-           // if prev entries of my log and event.msg match
-           //    add to disk log
-            //   flush disk log
-            //   respond ok to event.msg.serverid
-            else
-               respond err.
-        case "Timeout": 
-        return candidate  // new state back to loop()
-    }
-}
-}
-
-func (x LogStruct) Lsn() Lsn {
-
-	return x.Log_lsn
-}
-
-func (x LogStruct) Data() []byte {
-
-	return x.Log_data
-}
-
-func (x LogStruct) Committed() bool {
-
-	return x.Log_commit
-}
-
-type SharedLog interface {
-	// Each data item is wrapped in a LogEntry with a unique
-	// lsn. The only error that will be returned is ErrRedirect,
-	// to indicate the server id of the leader. Append initiates
-	// a local disk write and a broadcast to the other replicas,
-	// and returns without waiting for the result.
-	Append(data []byte) (LogEntry, error)
-}
+var ServersMap = make(map[int]Raft)
 
 // Raft setup
 type ServerConfig struct {
@@ -206,6 +54,166 @@ type LogStruct struct {
 	Log_commit bool
 }
 
+type Vote struct{
+	OrgServerId int
+	DestServerId int
+	VoteValue bool
+	OrgServerTerm int
+}
+
+type Event struct {
+	evType string
+	payload interface{}
+}
+
+const (
+	follower int = 1
+	candidate int = 2
+	leader int = 3
+)
+
+func (raft Raft) Loop(wg sync.WaitGroup) {
+    state := follower; // begin life as a follower
+
+    for {
+        switch (state)  {
+        case follower: state = raft.Follower()
+        case candidate: state = raft.Candidate()
+        case leader: state = raft.Leader()
+        default: return
+        }
+    }
+    defer wg.Done()
+}
+
+func (raft Raft) Follower() int{
+
+    timer := time.NewTimer(time.Duration(rand.Intn(10))*time.Millisecond) // to become candidate if no append reqs
+
+    go func() {
+    	for {
+    	<- timer.C
+    	raft.EventCh <- Event{"Timeout",nil}
+    	}
+    	}()
+
+    for {
+        event := <- raft.EventCh
+        switch event.evType {
+        case "ClientAppend":
+        	fmt.Println("S"+strconv.Itoa(raft.ThisServerId) + ": Rxd Command, But I am a Follower. NOACT" )
+            // Do not handle clients in follower mode. Send it back up the
+            // pipe with committed = false
+            //ev.logEntry.commited = false
+            //commitCh <- ev.logentry
+        case "VoteRequest":
+        	msg := event.payload
+        	fmt.Println("S"+strconv.Itoa(raft.ThisServerId) + ": Rxd Vote Request from S" +strconv.Itoa(msg.(Vote).OrgServerId) +" , But I am a Follower. NOACT" )
+ 
+            if msg.(Vote).OrgServerTerm < raft.currentTerm {
+            	raft.EventCh <- Event{"VoteResponse", Vote{raft.ThisServerId, msg.(Vote).DestServerId, false, raft.currentTerm}}
+            } else if msg.(Vote).OrgServerTerm > raft.currentTerm {
+            	raft.currentTerm = msg.(Vote).OrgServerTerm
+            }
+            //if not already voted in my term
+            //    reset timer
+             //   reply ok to event.msg.serverid
+            //    remember term, leader id (either in log or in separate file)
+        case "AppendRPC":
+           // reset timer
+           // if msg.term < currentterm, ignore
+           // reset heartbeat timer
+           // upgrade to event.msg.term if necessary
+           // if prev entries of my log and event.msg match
+           //    add to disk log
+            //   flush disk log
+            //   respond ok to event.msg.serverid
+           // else
+             //  respond err.
+        case "Timeout": 
+        fmt.Println("S"+strconv.Itoa(raft.ThisServerId)+ "Follower Timed Out. Now Candidate")
+        return candidate  // new state back to loop()
+    }
+}
+}
+
+func (raft Raft) Leader() int{
+	fmt.Println("S"+strconv.Itoa(raft.ThisServerId)+" Appointed LEADER!")
+	return 0
+}
+
+func (raft Raft) Candidate() int {
+	//Self Vote
+	votesRxd:=1
+	raft.currentTerm = raft.currentTerm + 1
+    go func(){
+    	for _, server := range raft.Cluster.Servers {
+        	if server.Id != raft.ThisServerId{
+        			ServersMap[server.Id].EventCh <- Event{"VoteRequest",Vote{raft.ThisServerId, server.Id, false, raft.currentTerm}}
+        			fmt.Println("S"+strconv.Itoa(raft.ThisServerId)+" Sending vote request to "+strconv.Itoa(server.Id))      		
+        	}
+	    }
+	}()
+
+	    for {
+        event := <- raft.EventCh
+        switch event.evType {
+        case "ClientAppend":
+        	fmt.Println("S"+strconv.Itoa(raft.ThisServerId) + ": Rxd Command, But I am a Candidate. NOACT" )
+            // Do not handle clients in follower mode. Send it back up the
+            // pipe with committed = false
+            //ev.logEntry.commited = false
+            //commitCh <- ev.logentry
+        case "VoteResponse":
+        	msg := event.payload
+        	fmt.Println("S"+strconv.Itoa(raft.ThisServerId) + ": Rxd Vote Response from S" +strconv.Itoa(msg.(Vote).OrgServerId) +", I am a Candidate" )
+          	votesRxd = votesRxd + 1
+          	if votesRxd >= raft.ServersCount/2 {
+          		return leader
+          	}
+        case "AppendRPC":
+           // reset timer
+           // if msg.term < currentterm, ignore
+           // reset heartbeat timer
+           // upgrade to event.msg.term if necessary
+           // if prev entries of my log and event.msg match
+           //    add to disk log
+            //   flush disk log
+            //   respond ok to event.msg.serverid
+            //else
+             //  respond err.
+        case "Timeout": 
+        return candidate  // new state back to loop()
+    }
+}
+}
+
+func (x LogStruct) Lsn() Lsn {
+
+	return x.Log_lsn
+}
+
+func (x LogStruct) Data() []byte {
+
+	return x.Log_data
+}
+
+func (x LogStruct) Committed() bool {
+
+	return x.Log_commit
+}
+
+type SharedLog interface {
+	// Each data item is wrapped in a LogEntry with a unique
+	// lsn. The only error that will be returned is ErrRedirect,
+	// to indicate the server id of the leader. Append initiates
+	// a local disk write and a broadcast to the other replicas,
+	// and returns without waiting for the result.
+	Append(data []byte) (LogEntry, error)
+}
+
+
+
 // Creates a raft object. This implements the SharedLog interface.
 // commitCh is the channel that the kvstore waits on for committed messages.
 // When the process starts, the local disk log is read and all committed
@@ -213,10 +221,10 @@ type LogStruct struct {
 func NewRaft(clusterConfig *ClusterConfig, thisServerId int, LeaderId int) (*Raft, error) {
 
 	serversCount := 0
-	currentTerm = -1
-	votedFor = -1
-	commitIndex = -1
-	lastApplied = -1 
+	currentTerm := -1
+	votedFor := -1
+	commitIndex := -1
+	lastApplied := -1 
 	EventCh := make(chan Event)
 
 	for _, _ = range clusterConfig.Servers {
@@ -226,7 +234,7 @@ func NewRaft(clusterConfig *ClusterConfig, thisServerId int, LeaderId int) (*Raf
 	raft = Raft{clusterConfig, thisServerId, LeaderId,serversCount,currentTerm, votedFor, commitIndex, lastApplied, EventCh}
 	fmt.Println("Server "+strconv.Itoa(thisServerId) + " Booted!")
 	var err error = nil
-	ServersMap[thisServerId] = &raft
+	ServersMap[thisServerId] = raft
 	return &raft, err
 }
 

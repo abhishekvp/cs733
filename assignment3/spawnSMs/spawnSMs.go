@@ -4,9 +4,10 @@ import (
 	"github.com/abhishekvp/cs733/assignment3/raft"
 	"io/ioutil"
 	"encoding/json"
+	"sync"
 )
 func main() {
-
+    var wg sync.WaitGroup
 	var clusterConfig raft.ClusterConfig
 	serverConfig, err := ioutil.ReadFile("/home/avp/GO/src/github.com/abhishekvp/cs733/assignment3/servers.json")
 	if err != nil {
@@ -20,7 +21,9 @@ func main() {
 
 	for _, server := range clusterConfig.Servers {
 		leaderId:=-1
-		_, _ = raft.NewRaft(&clusterConfig, server.Id, leaderId)
+		raftInstance, _ := raft.NewRaft(&clusterConfig, server.Id, leaderId)
+		wg.Add(1)
+		go raftInstance.Loop(wg)
 	}
-
+	wg.Wait()
 }
