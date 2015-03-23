@@ -1,7 +1,7 @@
 Assignment 3. Raft State Machine
 ===============================
 
-This assignment focusses on the Raft side, implementing the state machine in isolation. Communication between the servers is implemented using channels, will be later replaced by sockets. The server configurations are read from servers.json. Goroutines are spawned acting as a servers, Leader Election and Log Replication take place amongst the servers. 
+This assignment focusses on the Raft side, implementing the state machine in isolation. Communication between the servers is implemented using channels, will be later replaced by sockets. The server configurations are read from servers.json. Goroutines are spawned acting as servers, Leader Election and Log Replication take place amongst the servers. 
 
 ### Usage Instructions
 
