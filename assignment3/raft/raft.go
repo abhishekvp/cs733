@@ -88,15 +88,17 @@ func (raft Raft) Loop(wg sync.WaitGroup) {
 
 func (raft Raft) Follower() int{
 
-    timer := time.NewTimer(time.Duration(rand.Intn(10))*time.Millisecond) // to become candidate if no append reqs
 
+	fmt.Println("S"+strconv.Itoa(raft.ThisServerId)+": In Follower")
+    timer := time.NewTimer(time.Duration(rand.Intn(10))*time.Millisecond) // to become candidate if no append reqs
     go func() {
+   
     	for {
     	<- timer.C
     	raft.EventCh <- Event{"Timeout",nil}
     	}
     	}()
-
+	
     for {
         event := <- raft.EventCh
         switch event.evType {
@@ -109,11 +111,18 @@ func (raft Raft) Follower() int{
         case "VoteRequest":
         	msg := event.payload
         	fmt.Println("S"+strconv.Itoa(raft.ThisServerId) + ": Rxd Vote Request from S" +strconv.Itoa(msg.(Vote).OrgServerId) +" , But I am a Follower. NOACT" )
- 
+ 			fmt.Println("VoteReq Term:"+strconv.Itoa(msg.(Vote).OrgServerTerm)+" CurrentTerm:"+strconv.Itoa(raft.currentTerm))
             if msg.(Vote).OrgServerTerm < raft.currentTerm {
-            	raft.EventCh <- Event{"VoteResponse", Vote{raft.ThisServerId, msg.(Vote).DestServerId, false, raft.currentTerm}}
-            } else if msg.(Vote).OrgServerTerm > raft.currentTerm {
+            	ServersMap[msg.(Vote).OrgServerId].EventCh <- Event{"VoteResponse", Vote{raft.ThisServerId, msg.(Vote).DestServerId, false, raft.currentTerm}}
+            	fmt.Println("S"+strconv.Itoa(raft.ThisServerId) + ": Sent Negative Vote Response to S"+strconv.Itoa(msg.(Vote).OrgServerId))
+            }
+            if msg.(Vote).OrgServerTerm > raft.currentTerm {
             	raft.currentTerm = msg.(Vote).OrgServerTerm
+            }
+            if raft.votedFor==-1 {
+            	ServersMap[msg.(Vote).OrgServerId].EventCh <- Event{"VoteResponse", Vote{raft.ThisServerId, msg.(Vote).DestServerId, true, raft.currentTerm}}
+            	fmt.Println("S"+strconv.Itoa(raft.ThisServerId) + ": Sent Positive Vote Response to S"+strconv.Itoa(msg.(Vote).OrgServerId))
+            	raft.votedFor = msg.(Vote).OrgServerId
             }
             //if not already voted in my term
             //    reset timer
@@ -143,17 +152,21 @@ func (raft Raft) Leader() int{
 }
 
 func (raft Raft) Candidate() int {
+	fmt.Println("S"+strconv.Itoa(raft.ThisServerId)+": In Candidate")
 	//Self Vote
 	votesRxd:=1
 	raft.currentTerm = raft.currentTerm + 1
-    go func(){
+
+		go func(){
     	for _, server := range raft.Cluster.Servers {
         	if server.Id != raft.ThisServerId{
         			ServersMap[server.Id].EventCh <- Event{"VoteRequest",Vote{raft.ThisServerId, server.Id, false, raft.currentTerm}}
         			fmt.Println("S"+strconv.Itoa(raft.ThisServerId)+" Sending vote request to "+strconv.Itoa(server.Id))      		
         	}
 	    }
-	}()
+		}()
+	
+
 
 	    for {
         event := <- raft.EventCh
@@ -221,7 +234,7 @@ type SharedLog interface {
 func NewRaft(clusterConfig *ClusterConfig, thisServerId int, LeaderId int) (*Raft, error) {
 
 	serversCount := 0
-	currentTerm := -1
+	currentTerm := 0
 	votedFor := -1
 	commitIndex := -1
 	lastApplied := -1 
