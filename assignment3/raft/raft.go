@@ -101,7 +101,7 @@ func NewRaft(clusterConfig *ClusterConfig, thisServerId int, LeaderId int) (Raft
 	}
 
 	var raft = Raft{clusterConfig, thisServerId, LeaderId, serversCount, currentTerm, votedFor, commitIndex, lastApplied, EventCh}
-	fmt.Println("Server " + strconv.Itoa(thisServerId) + " Booted!")
+	//fmt.Println("Server " + strconv.Itoa(thisServerId) + " Booted!")
 	var err error = nil
 	//Populating the Common Map containing all raft instance with the newly created raft instance
 	ServersMap[thisServerId] = raft
@@ -208,7 +208,7 @@ func (raft Raft) Follower() int {
 }
 
 func (raft Raft) Leader() int {
-	fmt.Println("S" + strconv.Itoa(raft.ThisServerId) + " Appointed LEADER!")
+	//fmt.Println("S" + strconv.Itoa(raft.ThisServerId) + " Appointed LEADER!")
 
 	for {
 		//Send HeartBeat to all servers
