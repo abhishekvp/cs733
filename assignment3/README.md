@@ -14,7 +14,7 @@ This assignment focusses on the Raft side, implementing the state machine in iso
 
 
 #### TO DO
-* --Implement Safe Leader Election--
+* ~~Implement Safe Leader Election~~
 * Implement Log Replication
 * Add Test Cases
 
