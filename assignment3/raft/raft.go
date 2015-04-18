@@ -3,9 +3,10 @@ package raft
 import (
 	"fmt"
 	"math/rand"
-	//"strconv"
+	"strconv"
 	"sync"
 	"time"
+	"log"
 )
 
 /*
@@ -31,7 +32,12 @@ type LogEntry interface {
 * Map containing all raft instances.
 * Used to communicate between instances(servers) through the event channel
  */
-var ServersMap = make(map[int]Raft)
+
+var MapStruct = struct{
+    sync.RWMutex
+    ServersMap map[int]Raft
+}{ServersMap: make(map[int]Raft)}
+
 
 // Raft setup
 type ServerConfig struct {
@@ -101,10 +107,12 @@ func NewRaft(clusterConfig *ClusterConfig, thisServerId int, LeaderId int) (Raft
 	}
 
 	var raft = Raft{clusterConfig, thisServerId, LeaderId, serversCount, currentTerm, votedFor, commitIndex, lastApplied, EventCh}
-	//fmt.Println("Server " + strconv.Itoa(thisServerId) + " Booted!")
+	log.Println("Server " + strconv.Itoa(thisServerId) + " Booted!")
 	var err error = nil
 	//Populating the Common Map containing all raft instance with the newly created raft instance
-	ServersMap[thisServerId] = raft
+	MapStruct.Lock()
+	MapStruct.ServersMap[thisServerId] = raft
+	MapStruct.Unlock()
 	return raft, err
 }
 
@@ -127,24 +135,30 @@ func (raft Raft) Loop(wg sync.WaitGroup) {
 }
 
 //Function to ensure that common Map contains all raft instances
-//Not used in the program flow
+//For Debugging Only
 func (raft Raft) PrintAllRafts() {
 	totalServers := raft.ServersCount
 	for i := 0; i < totalServers; i++ {
-		fmt.Println(ServersMap[i])
+		MapStruct.RLock()
+		fmt.Println(MapStruct.ServersMap[i])
+		MapStruct.RUnlock()
 	}
 
 }
 
 func (raft Raft) Follower() int {
-	//fmt.Println("S"+strconv.Itoa(raft.ThisServerId)+": In Follower")
-	timer := time.NewTimer(time.Duration(rand.Intn(10)) * time.Millisecond) // to become candidate if no append reqs
+	log.Println("F S"+strconv.Itoa(raft.ThisServerId)+": In Follower")
+	timer := time.AfterFunc(time.Duration(random(0,1000)) * time.Millisecond, func(){
+		log.Print("F S"+strconv.Itoa(raft.ThisServerId)+" Timed Out")
+		raft.EventCh <- Event{"Timeout", nil}
+		})
+	
 	var wg sync.WaitGroup
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		for {
+		for{
 			<-timer.C
 			raft.EventCh <- Event{"Timeout", nil}
 		}
@@ -154,25 +168,33 @@ func (raft Raft) Follower() int {
 		event := <-raft.EventCh
 		switch event.evType {
 		case "ClientAppend":
-			//fmt.Println("S"+strconv.Itoa(raft.ThisServerId) + ": Rxd Command, But I am a Follower. NOACT" )
+			log.Println("F S"+strconv.Itoa(raft.ThisServerId) + ": Rxd Command, I am a Follower." )
 			// Do not handle clients in follower mode. Send it back up the
 			// pipe with committed = false
 			//ev.logEntry.commited = false
 			//commitCh <- ev.logentry
 		case "VoteRequest":
 			msg := event.payload
-			//fmt.Println("S"+strconv.Itoa(raft.ThisServerId) + ": Rxd Vote Request from S" +strconv.Itoa(msg.(Vote).OrgServerId) +" , But I am a Follower. NOACT" )
-			//fmt.Println("VoteReq Term:"+strconv.Itoa(msg.(Vote).OrgServerTerm)+" CurrentTerm:"+strconv.Itoa(raft.currentTerm))
+			log.Println("F S"+strconv.Itoa(raft.ThisServerId) + ": Rxd Vote Request from S" +strconv.Itoa(msg.(Vote).OrgServerId) +" , I am a Follower." )
+			log.Println("F VoteReq Term:"+strconv.Itoa(msg.(Vote).OrgServerTerm)+" CurrentTerm:"+strconv.Itoa(raft.currentTerm))
 			if msg.(Vote).OrgServerTerm < raft.currentTerm {
-				ServersMap[msg.(Vote).OrgServerId].EventCh <- Event{"VoteResponse", Vote{raft.ThisServerId, msg.(Vote).DestServerId, false, raft.currentTerm}}
-				//fmt.Println("S"+strconv.Itoa(raft.ThisServerId) + ": Sent Negative Vote Response to S"+strconv.Itoa(msg.(Vote).OrgServerId))
+				MapStruct.Lock()
+				MapStruct.ServersMap[msg.(Vote).OrgServerId].EventCh <- Event{"VoteResponse", Vote{raft.ThisServerId, msg.(Vote).DestServerId, false, raft.currentTerm}}
+				MapStruct.Unlock()
+				log.Println("F S"+strconv.Itoa(raft.ThisServerId) + ": Sent Negative Vote Response to S"+strconv.Itoa(msg.(Vote).OrgServerId))
+				//Reset Election Timeout
+				_ = timer.Reset(time.Duration(random(150,350)) * time.Millisecond)
 			}
 			if msg.(Vote).OrgServerTerm > raft.currentTerm {
 				raft.currentTerm = msg.(Vote).OrgServerTerm
 				if raft.votedFor == -1 {
-					ServersMap[msg.(Vote).OrgServerId].EventCh <- Event{"VoteResponse", Vote{raft.ThisServerId, msg.(Vote).DestServerId, true, raft.currentTerm}}
-					//fmt.Println("S"+strconv.Itoa(raft.ThisServerId) + ": Sent Positive Vote Response to S"+strconv.Itoa(msg.(Vote).OrgServerId))
+					MapStruct.Lock()
+					MapStruct.ServersMap[msg.(Vote).OrgServerId].EventCh <- Event{"VoteResponse", Vote{raft.ThisServerId, msg.(Vote).DestServerId, true, raft.currentTerm}}
+					MapStruct.Unlock()
+					log.Println("F S"+strconv.Itoa(raft.ThisServerId) + ": Sent Positive Vote Response to S"+strconv.Itoa(msg.(Vote).OrgServerId))
 					raft.votedFor = msg.(Vote).OrgServerId
+					//Reset Election Timeout
+					_ = timer.Reset(time.Duration(random(150,350)) * time.Millisecond)
 				}
 			}
 			//if not already voted in my term
@@ -181,11 +203,11 @@ func (raft Raft) Follower() int {
 			//    remember term, leader id (either in log or in separate file)
 		case "AppendRPC":
 			msg := event.payload
-			//fmt.Println("S"+strconv.Itoa(raft.ThisServerId) +"Rxd AppendRPC")
+			log.Println("F S"+strconv.Itoa(raft.ThisServerId) +"Rxd AppendRPC")
 			//HeartBeat from Server, therefore reset timer
 			if msg == nil {
-				//fmt.Println("HB at S"+strconv.Itoa(raft.ThisServerId) + ": Resetting self-timer" )
-				timer = time.NewTimer(time.Duration(rand.Intn(10)) * time.Millisecond)
+				log.Println("F HB at S"+strconv.Itoa(raft.ThisServerId) + ": Resetting self-timer" )
+				_ = timer.Reset(time.Duration(random(150,350)) * time.Millisecond)
 			}
 			// reset timer
 			// if msg.term < currentterm, ignore
@@ -198,7 +220,8 @@ func (raft Raft) Follower() int {
 			// else
 			//  respond err.
 		case "Timeout":
-			//fmt.Println("S"+strconv.Itoa(raft.ThisServerId)+ "Follower Timed Out. Now Candidate")
+			log.Println("F S"+strconv.Itoa(raft.ThisServerId)+ "Follower Timed Out. Now Candidate")
+			timer.Stop()
 			return candidate // new state back to loop()
 		}
 	}
@@ -208,85 +231,145 @@ func (raft Raft) Follower() int {
 }
 
 func (raft Raft) Leader() int {
-	//fmt.Println("S" + strconv.Itoa(raft.ThisServerId) + " Appointed LEADER!")
+	log.Println("L S" + strconv.Itoa(raft.ThisServerId) + " Appointed LEADER!")
 
-	for {
-		//Send HeartBeat to all servers
+	var wg sync.WaitGroup
+	heartBeat := Event{"AppendRPC", nil}
+
+	wg.Add(1)
+	go func(){
 		for _, server := range raft.Cluster.Servers {
-			<-ServersMap[server.Id].EventCh
+			log.Println("L S" + strconv.Itoa(raft.ThisServerId) + "Inside HB sending For Loop")
+			//dump := <-ServersMap[raft.ThisServerId].EventCh
+			//log.Print(": Dumped :")
+			//log.Println(dump)
 			//Workaround Go Lang Issue
+			/*
 			tempRaftInst := ServersMap[server.Id]
 			tempRaftInst.LeaderId = raft.ThisServerId
 			ServersMap[server.Id] = tempRaftInst
+			*/
 			if server.Id != raft.ThisServerId {
-				heartBeat := Event{"AppendRPC", nil}
-				ServersMap[server.Id].EventCh <- heartBeat
-				//fmt.Println("Leader S"+strconv.Itoa(raft.ThisServerId)+" sent HeartBeat to "+strconv.Itoa(server.Id))
+				log.Println("Inside IF Block")
+				MapStruct.Lock()
+				MapStruct.ServersMap[server.Id].EventCh <- heartBeat
+				MapStruct.Unlock()
+				log.Println("L S"+strconv.Itoa(raft.ThisServerId)+" sent HeartBeat to "+strconv.Itoa(server.Id))
 			}
 		}
-	}
 
+		}()
+
+	for {
+
+		event := <-raft.EventCh
+		switch event.evType {
+		case "ClientAppend":
+			log.Println("C S"+strconv.Itoa(raft.ThisServerId) + ": Rxd Command, But I am a Leader." )
+			// Do not handle clients in follower mode. Send it back up the
+			// pipe with committed = false
+			//ev.logEntry.commited = false
+			//commitCh <- ev.logentry
+
+		case "VoteResponse":
+			msg := event.payload
+			log.Println("L S"+strconv.Itoa(raft.ThisServerId) + ": Rxd Vote Response from S" +strconv.Itoa(msg.(Vote).OrgServerId) +", I am a Candidate" )
+			
+
+		case "VoteRequest":
+			msg := event.payload
+			log.Println("L Rxd VoteRequest from S" +strconv.Itoa(msg.(Vote).OrgServerId))
+			if msg.(Vote).OrgServerTerm <= raft.currentTerm {
+				heartBeat := Event{"AppendRPC", nil}
+				MapStruct.Lock()
+				MapStruct.ServersMap[msg.(Vote).OrgServerId].EventCh <- heartBeat
+				MapStruct.Unlock()
+				log.Print("L Sent HBT to S"+strconv.Itoa(msg.(Vote).OrgServerId))
+
+			}
+		}
+
+		log.Println("L S" + strconv.Itoa(raft.ThisServerId) + " In Leader : infi loop")
+		//Send HeartBeat to all servers
+
+
+
+
+
+}
+	wg.Wait()
 	return 0
 }
 
 func (raft Raft) Candidate() int {
-	timer := time.NewTimer(time.Duration(rand.Intn(10)) * time.Millisecond) // to become candidate if no append reqs
+	log.Println("S"+strconv.Itoa(raft.ThisServerId)+": In Candidate")
 
+	timer := time.AfterFunc(time.Duration(random(0,5000)) * time.Millisecond, func(){
+		log.Print("C S"+strconv.Itoa(raft.ThisServerId)+" Timed Out")
+		raft.EventCh <- Event{"Timeout", nil}
+		})
+
+
+	
 	var wg sync.WaitGroup
-
 	wg.Add(1)
 	go func() {
-		defer wg.Done()
-		for {
-			<-timer.C
-			raft.EventCh <- Event{"Timeout", nil}
-		}
-	}()
-
-	//fmt.Println("S"+strconv.Itoa(raft.ThisServerId)+": In Candidate")
-	//Self Vote
-	votesRxd := 1
-	raft.currentTerm = raft.currentTerm + 1
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	defer wg.Done()
 		for _, server := range raft.Cluster.Servers {
 			if server.Id != raft.ThisServerId {
-
-				ServersMap[server.Id].EventCh <- Event{"VoteRequest", Vote{raft.ThisServerId, server.Id, false, raft.currentTerm}}
-				//fmt.Println("S"+strconv.Itoa(raft.ThisServerId)+" Sending vote request to "+strconv.Itoa(server.Id))
+				MapStruct.Lock()
+				MapStruct.ServersMap[server.Id].EventCh <- Event{"VoteRequest", Vote{raft.ThisServerId, server.Id, false, raft.currentTerm}}
+				MapStruct.Unlock()
+				log.Println("C S"+strconv.Itoa(raft.ThisServerId)+" Sending vote request to "+strconv.Itoa(server.Id))
 
 			}
 		}
 	}()
 
+
+	
+
+	//Self Vote
+	votesRxd := 1
+	raft.currentTerm = raft.currentTerm + 1
+
 	for {
+
 		event := <-raft.EventCh
+		log.Println("C Listening Loop : S"+strconv.Itoa(raft.ThisServerId))
+		log.Println(event)
 		switch event.evType {
 		case "ClientAppend":
-			//fmt.Println("S"+strconv.Itoa(raft.ThisServerId) + ": Rxd Command, But I am a Candidate. NOACT" )
+			log.Println("C S"+strconv.Itoa(raft.ThisServerId) + ": Rxd Command, But I am a Candidate." )
 			// Do not handle clients in follower mode. Send it back up the
 			// pipe with committed = false
 			//ev.logEntry.commited = false
 			//commitCh <- ev.logentry
 		case "VoteResponse":
 			msg := event.payload
-			//fmt.Println("S"+strconv.Itoa(raft.ThisServerId) + ": Rxd Vote Response from S" +strconv.Itoa(msg.(Vote).OrgServerId) +", I am a Candidate" )
+			log.Println("C S"+strconv.Itoa(raft.ThisServerId) + ": Rxd Vote Response from S" +strconv.Itoa(msg.(Vote).OrgServerId) +", I am a Candidate" )
 			if msg.(Vote).VoteValue == true {
 				votesRxd = votesRxd + 1
-				//fmt.Println("Votes = "+strconv.Itoa(votesRxd))
+				log.Println("C Votes = "+strconv.Itoa(votesRxd))
 				if votesRxd > raft.ServersCount/2 {
 					return leader
 				}
 			}
+		case "VoteRequest":
+			msg := event.payload
+			if msg.(Vote).OrgServerTerm >= raft.currentTerm {
+				raft.currentTerm = msg.(Vote).OrgServerTerm
+				raft.votedFor = -1 
+				log.Println("C S"+strconv.Itoa(raft.ThisServerId) + ": Rxd Vote Request from S" +strconv.Itoa(msg.(Vote).OrgServerId) +" , Becoming Follower" )
+				return follower
+				}
+			
 		case "AppendRPC":
 			msg := event.payload
-			//fmt.Println("S"+strconv.Itoa(raft.ThisServerId) +"Rxd AppendRPC")
+			log.Println("C S"+strconv.Itoa(raft.ThisServerId) +"Rxd AppendRPC")
 			//HeartBeat from Server, therefore become follower
 			if msg == nil {
-				//fmt.Println("HB at S"+strconv.Itoa(raft.ThisServerId) + " Becoming Follower")
-
+				log.Println("C HB at S"+strconv.Itoa(raft.ThisServerId) + " Becoming Follower")
 				return follower
 			}
 			// reset timer
@@ -300,7 +383,10 @@ func (raft Raft) Candidate() int {
 			//else
 			//  respond err.
 		case "Timeout":
-			return candidate // new election
+			log.Println("C S"+strconv.Itoa(raft.ThisServerId) +": Candidate Timed Out. Resetting")
+			timer.Stop()
+			//log.Println(<-raft.EventCh)
+			return candidate
 		}
 	}
 
@@ -330,6 +416,12 @@ type SharedLog interface {
 	// a local disk write and a broadcast to the other replicas,
 	// and returns without waiting for the result.
 	Append(data []byte) (LogEntry, error)
+}
+
+//Src : http://golangcookbook.blogspot.in/2012/11/generate-random-number-in-given-range.html
+func random(min, max int) int {
+    rand.Seed(time.Now().UnixNano())
+    return rand.Intn(max - min) + min
 }
 
 /*

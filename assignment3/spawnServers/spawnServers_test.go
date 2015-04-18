@@ -9,9 +9,10 @@ func TestMain(t *testing.T) {
 
 	go main()
 
+	raft.MapStruct.RLock()
 	//Test for Leader Elected or not
 	for i := 0; i < 5; i++ {
-		if raft.ServersMap[i].LeaderId == -1 {
+		if raft.MapStruct.ServersMap[i].LeaderId == -1 {
 			t.Error("Leader Not Elected!")
 		}
 	}
@@ -19,10 +20,11 @@ func TestMain(t *testing.T) {
 	//Test for Safe Leader Election
 	for i := 0; i < 5; i++ {
 		for j := 0; j < 5; j++ {
-			if raft.ServersMap[i].LeaderId != raft.ServersMap[j].LeaderId {
+			if raft.MapStruct.ServersMap[i].LeaderId != raft.MapStruct.ServersMap[j].LeaderId {
 				t.Error("Leader Election Unsafe! More than one leader elected!")
 			}
 		}
 	}
+	raft.MapStruct.RUnlock()
 
 }
