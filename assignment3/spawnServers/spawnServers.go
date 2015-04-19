@@ -5,10 +5,10 @@ import (
 	"github.com/abhishekvp/cs733/assignment3/raft"
 	"io/ioutil"
 	"sync"
+	//"runtime"
 )
 
 func main() {
-
 	var clusterConfig raft.ClusterConfig
 	serverConfig, err := ioutil.ReadFile("/home/avp/GO/src/github.com/abhishekvp/cs733/assignment3/servers.json")
 	if err != nil {
