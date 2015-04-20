@@ -328,8 +328,16 @@ func (raft Raft) Follower() int {
 
 func (raft Raft) Leader() int {
 	log.Println("L S" + strconv.Itoa(raft.ThisServerId) + " Appointed LEADER!")
-
-	heartBeat := Event{"AppendRPC", nil}
+	/*
+	To send in HeartBeat, keeping entry as nil
+	term         int
+	leaderId     int
+	prevLogIndex int
+	prevLogTerm  int
+	entry        string
+	leaderCommit int
+	*/
+	heartBeat := Event{"AppendRPC", AppendEntriesReq{raft.currentTerm, raft.ThisServerId, len(raft.log), raft.log[Lsn(len(raft.log))].term,"", 0}}
 
 	go func() {
 		for {
@@ -376,12 +384,12 @@ func (raft Raft) Leader() int {
 			//commitCh <- ev.logentry
 
 		case "VoteResponse":
-			msg := event.payload
-			log.Println("L S" + strconv.Itoa(raft.ThisServerId) + ": Rxd Vote Response from S" + strconv.Itoa(msg.(VoteReq).candidateId) + ", I am a Candidate")
+			//msg := event.payload
+			log.Println("L S" + strconv.Itoa(raft.ThisServerId) + ": Rxd Vote Response")// from S" + strconv.Itoa(msg.(VoteRes).candidateId) + ", I am a Candidate")
 
 		case "VoteRequest":
-			msg := event.payload
-			log.Println("L Rxd VoteRequest from S" + strconv.Itoa(msg.(VoteReq).candidateId))
+			//msg := event.payload
+			log.Println("L Rxd VoteRequest")// + strconv.Itoa(msg.(VoteReq).candidateId))
 			/*
 				if msg.(Vote).OrgServerTerm <= raft.currentTerm {
 					heartBeat := Event{"AppendRPC", nil}
@@ -464,7 +472,7 @@ func (raft Raft) Candidate() int {
 			//commitCh <- ev.logentry
 		case "VoteResponse":
 			msg := event.payload
-			log.Println("C S" + strconv.Itoa(raft.ThisServerId) + ": Rxd Vote Response from S" + strconv.Itoa(msg.(VoteReq).candidateId) + ", I am a Candidate")
+			//log.Println("C S" + strconv.Itoa(raft.ThisServerId) + ": Rxd Vote Response from S" + strconv.Itoa(msg.(VoteReq).candidateId) + ", I am a Candidate")
 			if msg.(VoteRes).voteGranted == true {
 				votesRxd = votesRxd + 1
 				log.Println("C Votes = " + strconv.Itoa(votesRxd))
