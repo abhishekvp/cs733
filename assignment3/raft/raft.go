@@ -24,7 +24,7 @@ type ErrRedirect int
 
 type LogEntry interface {
 	Lsn() Lsn
-	Data() []byte
+	Data() string
 	Committed() bool
 }
 
@@ -66,7 +66,9 @@ type Raft struct {
 	lastApplied  int
 	nextIndex    []int
 	matchIndex   []int
+	responses 	 []int
 	EventCh      chan Event
+	CommitCh     chan LogStruct
 }
 
 type LogStruct struct {
@@ -116,7 +118,7 @@ type AppendEntriesRes struct {
 	term         int
 	success      bool
 	index        Lsn
-	thisServerId int
+	serverId int
 }
 
 // Return Values to be used in Follower(), Candidate() and Leader()
@@ -137,15 +139,17 @@ func NewRaft(clusterConfig *ClusterConfig, thisServerId int, LeaderId int) (Raft
 	logMap := make(map[Lsn]LogStruct)
 	commitIndex := -1
 	lastApplied := -1
-	nextIndex := []int{0, 0, 0, 0, 0}
+	nextIndex := []int{1, 1, 1, 1, 1}
 	matchIndex := []int{0, 0, 0, 0, 0}
+	responses := []int{0, 0, 0, 0, 0}
 	EventCh := make(chan Event)
+	CommitCh := make(chan LogStruct)
 
 	for _, _ = range clusterConfig.Servers {
 		serversCount = serversCount + 1
 	}
 
-	var raft = Raft{clusterConfig, thisServerId, LeaderId, serversCount, currentTerm, votedFor, logMap, commitIndex, lastApplied, nextIndex, matchIndex, EventCh}
+	var raft = Raft{clusterConfig, thisServerId, LeaderId, serversCount, currentTerm, votedFor, logMap, commitIndex, lastApplied, nextIndex, matchIndex, responses, EventCh, CommitCh}
 	log.Println("Server " + strconv.Itoa(thisServerId) + " Booted!")
 	var err error = nil
 	//Populating the Common Map containing all raft instance with the newly created raft instance
@@ -158,6 +162,15 @@ func NewRaft(clusterConfig *ClusterConfig, thisServerId int, LeaderId int) (Raft
 }
 
 func (raft Raft) Loop(wg sync.WaitGroup) {
+
+	go func(){
+
+		for {
+
+			data := <- raft.CommitCh
+			log.Println("Got DATA", data)
+		}
+		}()
 	defer wg.Done()
 	state := follower // begin life as a follower
 	for {
@@ -252,6 +265,7 @@ func (raft Raft) Follower() int {
 		case "AppendRPC":
 			msg := event.payload
 			log.Println("F S" + strconv.Itoa(raft.ThisServerId) + "Rxd AppendRPC")
+			log.Println(msg.(AppendEntriesReq).entry)
 
 			//Reset Election Timeout
 			log.Println("Reset Election Timeout")
@@ -260,7 +274,7 @@ func (raft Raft) Follower() int {
 			var RaftLastLogTerm int
 
 			if msg.(AppendEntriesReq).entry != "" {
-
+				log.Println("Message not nil at Follower")
 				RaftLastLogIndex := Lsn(len(raft.log))
 
 				//Case when raft.log is empty
@@ -276,9 +290,9 @@ func (raft Raft) Follower() int {
 					//Current Term is greater than Leader Term, send false
 					log.Println("F S" + strconv.Itoa(raft.ThisServerId) + "Current Term is greater than Leader Term, send false")
 					AppendEntriesResInst := AppendEntriesRes{raft.currentTerm, false, RaftLastLogIndex, raft.ThisServerId}
-					MapStruct.RLock()
-					raft.Send(MapStruct.ServersMap[msg.(AppendEntriesReq).leaderId], Event{"AppendRPCResp", AppendEntriesResInst})
-					MapStruct.RUnlock()
+					//MapStruct.RLock()
+					raft.Send(MapStruct.ServersMap[msg.(AppendEntriesReq).leaderId], Event{"AppendRPCRes", AppendEntriesResInst})
+					//MapStruct.RUnlock()
 					log.Println("F S" + strconv.Itoa(raft.ThisServerId) + "sent false to AppendRPC from leader")
 
 				} else if msg.(AppendEntriesReq).prevLogTerm != RaftLastLogTerm {
@@ -286,9 +300,9 @@ func (raft Raft) Follower() int {
 					// Follower's Log Term mismatch with that of AppendEntries Prev Log Term
 					log.Println("F S" + strconv.Itoa(raft.ThisServerId) + "Follower's Log Term mismatch with that of AppendEntries Prev Log Term")
 					AppendEntriesResInst := AppendEntriesRes{raft.currentTerm, false, RaftLastLogIndex, raft.ThisServerId}
-					MapStruct.RLock()
-					raft.Send(MapStruct.ServersMap[msg.(AppendEntriesReq).leaderId], Event{"AppendRPCResp", AppendEntriesResInst})
-					MapStruct.RUnlock()
+					//MapStruct.RLock()
+					raft.Send(MapStruct.ServersMap[msg.(AppendEntriesReq).leaderId], Event{"AppendRPCRes", AppendEntriesResInst})
+				//	MapStruct.RUnlock()
 					log.Println("F S" + strconv.Itoa(raft.ThisServerId) + "sent false to AppendRPC from leader")
 
 				} else {
@@ -299,9 +313,9 @@ func (raft Raft) Follower() int {
 					logStructInst := LogStruct{RaftLastLogIndex + 1, msg.(AppendEntriesReq).entry, false, msg.(AppendEntriesReq).term}
 					raft.log[RaftLastLogIndex+1] = logStructInst
 					AppendEntriesResInst := AppendEntriesRes{raft.currentTerm, true, RaftLastLogIndex, raft.ThisServerId}
-					MapStruct.RLock()
+					//MapStruct.RLock()
 					raft.Send(MapStruct.ServersMap[msg.(AppendEntriesReq).leaderId], Event{"AppendRPCRes", AppendEntriesResInst})
-					MapStruct.RUnlock()
+					//MapStruct.RUnlock()
 					//Code to write to log FILE
 					log.Println("F S" + strconv.Itoa(raft.ThisServerId) + "sent true to AppendRPC from leader")
 
@@ -311,9 +325,19 @@ func (raft Raft) Follower() int {
 
 				//HeartBeat
 				raft.LeaderId = msg.(AppendEntriesReq).leaderId
+				if msg.(AppendEntriesReq).leaderCommit > raft.commitIndex {
+					if msg.(AppendEntriesReq).leaderCommit < len(raft.log) {
+						raft.commitIndex = msg.(AppendEntriesReq).leaderCommit
+					} else {
+						raft.commitIndex = msg.(AppendEntriesReq).leaderCommit
+					}
+					raft.CommitCh <- raft.log[Lsn(raft.commitIndex)]
+				}
 				log.Println("F S" + strconv.Itoa(raft.ThisServerId) + "Rxd HeartBeat from Leader S" + strconv.Itoa(raft.LeaderId))
 
 			}
+
+
 
 		case "Timeout":
 			log.Println("F S" + strconv.Itoa(raft.ThisServerId) + "Follower Timed Out. Now Candidate")
@@ -328,43 +352,63 @@ func (raft Raft) Follower() int {
 
 func (raft Raft) Leader() int {
 	log.Println("L S" + strconv.Itoa(raft.ThisServerId) + " Appointed LEADER!")
-	/*
-	To send in HeartBeat, keeping entry as nil
-	term         int
-	leaderId     int
-	prevLogIndex int
-	prevLogTerm  int
-	entry        string
-	leaderCommit int
-	*/
-	heartBeat := Event{"AppendRPC", AppendEntriesReq{raft.currentTerm, raft.ThisServerId, len(raft.log), raft.log[Lsn(len(raft.log))].term,"", 0}}
 
+	
+	// HeatBeat/AppendRPC Entry Sending Logic
 	go func() {
 		for {
-			// HeatBeat Sending Logic
-			time.Sleep(time.Duration(10) * time.Millisecond)
+
+			time.Sleep(time.Duration(5) * time.Millisecond)
+			log.Println("Inside Leader Infi loop")
+			var data string
+
 			for _, server := range raft.Cluster.Servers {
+				log.Println("Inside servers For loop")
+				var RaftLastLogTerm int
 
 				//Workaround Go Lang Issue
-				MapStruct.RLock()
+				
+				//MapStruct.RLock()
 				tempRaftInst := MapStruct.ServersMap[server.Id]
-				MapStruct.RUnlock()
+				//MapStruct.RUnlock()
 				tempRaftInst.LeaderId = raft.ThisServerId
-				MapStruct.Lock()
+				//MapStruct.Lock()
 				MapStruct.ServersMap[server.Id] = tempRaftInst
-				MapStruct.Unlock()
+				//MapStruct.Unlock()
+					//log.Println("In inside for loop")
 
 				if server.Id != raft.ThisServerId {
 
-					log.Println("In inside for loop")
-					MapStruct.RLock()
+
+					if len(raft.log) >= raft.nextIndex[raft.ThisServerId] {
+						//Log Entry to send
+						log.Println("Log Entry deteced to replicate")
+						data = raft.log[Lsn(raft.nextIndex[raft.ThisServerId])].Log_data
+						log.Println(data)
+
+					} else {
+						//HeartBeat to send
+						log.Println("HeartBeat detected")
+						data = ""
+					}
+
+				//Case when raft.log is empty
+				_, exist := raft.log[Lsn(len(raft.log))]
+				if exist == true {
+					RaftLastLogTerm = raft.log[Lsn(raft.nextIndex[raft.ThisServerId]-1)].term
+				} else {
+					RaftLastLogTerm = 0
+				}
+
+					//MapStruct.RLock()
 					//log.Print("L S" + strconv.Itoa(raft.ThisServerId) + " Leader Read Lock Obtained")
 					//MapStruct.ServersMap[server.Id].EventCh <- heartBeat
-					raft.Send(MapStruct.ServersMap[server.Id], heartBeat)
-					MapStruct.RUnlock()
+					appendEntry := Event{"AppendRPC", AppendEntriesReq{raft.currentTerm, raft.ThisServerId, raft.nextIndex[raft.ThisServerId]-1,RaftLastLogTerm ,data, raft.commitIndex}}
+					raft.Send(MapStruct.ServersMap[server.Id], appendEntry)
+					//MapStruct.RUnlock()
 					//log.Print("L S" + strconv.Itoa(raft.ThisServerId) + " Leader Read Lock Released")
 
-					log.Println("L S" + strconv.Itoa(raft.ThisServerId) + " sent HeartBeat to " + strconv.Itoa(server.Id))
+					log.Println("L S" + strconv.Itoa(raft.ThisServerId) + " sent AppendRPC to " + strconv.Itoa(server.Id))
 
 				}
 			}
@@ -402,6 +446,27 @@ func (raft Raft) Leader() int {
 
 				}
 			*/
+		case "AppendRPCRes":
+			msg := event.payload
+			if msg.(AppendEntriesRes).success{
+				log.Println("L S" + strconv.Itoa(raft.ThisServerId)+"Received Successfull AppendRPC Response from S"+strconv.Itoa(msg.(AppendEntriesRes).serverId))
+
+				raft.matchIndex[msg.(AppendEntriesRes).serverId] = int(msg.(AppendEntriesRes).index)
+				raft.nextIndex[msg.(AppendEntriesRes).serverId] = raft.nextIndex[msg.(AppendEntriesRes).serverId] + 1
+
+				//To count the number of responses - number of servers that have replication the log with index = msg.(AppendEntriesRes).index
+				raft.responses[msg.(AppendEntriesRes).index] = int(msg.(AppendEntriesRes).index) + 1
+				log.Println("L S" + strconv.Itoa(raft.ThisServerId)+"Number of Responses = "+strconv.Itoa(raft.responses[msg.(AppendEntriesRes).index]))
+				if raft.responses[msg.(AppendEntriesRes).index] == 2 {
+					//Execute on the State Machine
+					raft.CommitCh <- raft.log[Lsn(msg.(AppendEntriesRes).index)]
+					log.Println("L S" + strconv.Itoa(raft.ThisServerId)+" Log Entry =")
+					log.Println(raft.log[Lsn(msg.(AppendEntriesRes).index)])
+					raft.commitIndex = int(msg.(AppendEntriesRes).index)
+					log.Println("Updated Leader Commit Index")
+				}
+			}	
+
 		}
 
 	}
@@ -426,7 +491,7 @@ func (raft Raft) Candidate() int {
 	go func() {
 		for _, server := range raft.Cluster.Servers {
 			if server.Id != raft.ThisServerId {
-				MapStruct.RLock()
+			//	MapStruct.RLock()
 				//log.Println("C S" + strconv.Itoa(raft.ThisServerId) + "Candidate Write Lock Obtained")
 				//MapStruct.ServersMap[server.Id].EventCh <- Event{"VoteRequest", Vote{raft.ThisServerId, server.Id, false, raft.currentTerm}}
 
@@ -450,7 +515,7 @@ func (raft Raft) Candidate() int {
 				log.Print(VoteReqInst)
 
 				raft.Send(MapStruct.ServersMap[server.Id], Event{"VoteRequest", VoteReqInst})
-				MapStruct.RUnlock()
+				//MapStruct.RUnlock()
 				//log.Println("C S" + strconv.Itoa(raft.ThisServerId) + "Candidate Write Lock Released")
 				log.Println("C S" + strconv.Itoa(raft.ThisServerId) + " Sending vote request to " + strconv.Itoa(server.Id))
 
@@ -493,12 +558,15 @@ func (raft Raft) Candidate() int {
 			msg := event.payload
 			log.Println("C S" + strconv.Itoa(raft.ThisServerId) + "Rxd AppendRPC")
 
-			//HeartBeat from Server, therefore become follower
-			if msg == nil {
+			//Reset Election Timeout
+			//log.Println("Reset Election Timeout")
+
+			   raft.currentTerm = msg.(AppendEntriesReq).term
+
 				log.Println("C HB at S" + strconv.Itoa(raft.ThisServerId) + " Becoming Follower")
 				timer.Stop()
 				return follower
-			}
+			
 			// reset timer
 			// if msg.term < currentterm, ignore
 			// reset heartbeat timer
@@ -610,13 +678,13 @@ func random(min, max int) int {
 	return rand.Intn(max-min) + min
 }
 
-/*
+
 // ErrRedirect as an Error object
 func (e ErrRedirect) Error() string {
-	return "ERR_REDIRECT " + raft.Cluster.Servers[int(e)].Hostname + " " + strconv.Itoa(raft.Cluster.Servers[int(e)].ClientPort) + "\r\n"
+	return "ERR_REDIRECT " //+ raft.Cluster.Servers[int(e)].Hostname + " " + strconv.Itoa(raft.Cluster.Servers[int(e)].ClientPort) + "\r\n"
 }
 
-func (raft Raft) Append(data []byte) (LogEntry, error) {
+func (raft Raft) Append(data string) (LogEntry, error) {
 
 	if raft.ThisServerId != raft.LeaderId {
 		return nil, ErrRedirect(raft.LeaderId)
@@ -625,14 +693,18 @@ func (raft Raft) Append(data []byte) (LogEntry, error) {
 
 		// Prepare the LogEntry
 		var log_instance LogStruct
-		lsn := Lsn(uint64(rand.Int63()))
-		log_instance = LogStruct{lsn, data, false}
+		lsn := Lsn(len(raft.log)+1)
+		log_instance = LogStruct{lsn, data, false, raft.currentTerm}
 
 		//Initialize number of ack for the lsn to 0
-		string_lsn := strconv.Itoa(int(log_instance.Lsn()))
+		//string_lsn := strconv.Itoa(int(log_instance.Lsn()))
 
+		//Push the log entry to the |log| map
+		raft.log[lsn] = log_instance
+		log.Println("Append : Log Entry pushed to Log Map of Leader")
+		log.Println("Data at Leader = "+raft.log[lsn].Log_data)
 
-
+		/*
 		* Write the received log entry - data byte to a file in the local disk
 		*
 		* References:
@@ -661,6 +733,7 @@ func (raft Raft) Append(data []byte) (LogEntry, error) {
 		if _, err = logFile.WriteString("\n" + strconv.Itoa(int(log_instance.Log_lsn)) + " " + string(log_instance.Log_data) + "false"); err != nil {
 			panic(err)
 		}
+		
 
 		// Take the raft object and broadcast the log-entry
 		// Lets send the logentry to each of the servers in the cluster
@@ -680,9 +753,9 @@ func (raft Raft) Append(data []byte) (LogEntry, error) {
 			} else {
 				_, _ = connection.Write([]byte(strconv.Itoa(int(log_instance.Lsn())) + " " + string(log_instance.Data()) + " false"))
 			}
-		}
+		}*/
 		// Prepare the log entry and return it
 		return log_instance, nil
 	}
 }
-*/
+

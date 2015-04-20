@@ -5,6 +5,8 @@ import (
 	"github.com/abhishekvp/cs733/assignment3/raft"
 	"io/ioutil"
 	"sync"
+	"time"
+	"log"
 	//"runtime"
 )
 
@@ -30,6 +32,13 @@ func main() {
 		wg.Add(1)
 		go raftInstance.Loop(wg)
 	}
+	log.Println("Sleeping for 2 Seconds")
+	time.Sleep(time.Duration(2000) * time.Millisecond)
+	log.Println("Woke Up after 2 Seconds")
+	raft.MapStruct.RLock()
+	leader := raft.MapStruct.ServersMap[0].LeaderId
+	log.Println("Obtained Leader! Append Called")
+	_,_ = raft.MapStruct.ServersMap[leader].Append("Hello World")
 	wg.Wait()
 	//raftInstance.PrintAllRafts()
 
