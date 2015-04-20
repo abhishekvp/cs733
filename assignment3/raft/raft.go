@@ -66,7 +66,7 @@ type Raft struct {
 	lastApplied  int
 	nextIndex    []int
 	matchIndex   []int
-	responses 	 []int
+	responses 	 map[Lsn]int
 	EventCh      chan Event
 	CommitCh     chan LogStruct
 }
@@ -141,7 +141,7 @@ func NewRaft(clusterConfig *ClusterConfig, thisServerId int, LeaderId int) (Raft
 	lastApplied := -1
 	nextIndex := []int{1, 1, 1, 1, 1}
 	matchIndex := []int{0, 0, 0, 0, 0}
-	responses := []int{0, 0, 0, 0, 0}
+	responses := make(map[Lsn]int)
 	EventCh := make(chan Event)
 	CommitCh := make(chan LogStruct)
 
@@ -268,13 +268,13 @@ func (raft Raft) Follower() int {
 			log.Println(msg.(AppendEntriesReq).entry)
 
 			//Reset Election Timeout
-			log.Println("Reset Election Timeout")
+			log.Println("F S" + strconv.Itoa(raft.ThisServerId) + "Reset Election Timeout")
 			_ = timer.Reset(time.Duration(random(0, 1000)) * time.Millisecond)
 
 			var RaftLastLogTerm int
 
 			if msg.(AppendEntriesReq).entry != "" {
-				log.Println("Message not nil at Follower")
+				log.Println("F S" + strconv.Itoa(raft.ThisServerId) + "Message not nil at Follower")
 				RaftLastLogIndex := Lsn(len(raft.log))
 
 				//Case when raft.log is empty
@@ -284,6 +284,8 @@ func (raft Raft) Follower() int {
 				} else {
 					RaftLastLogTerm = 0
 				}
+				log.Println("F S" + strconv.Itoa(raft.ThisServerId) + "Current Term = " + strconv.Itoa(raft.currentTerm))
+				log.Println("F S" + strconv.Itoa(raft.ThisServerId) + "Sender Term = " + strconv.Itoa(msg.(AppendEntriesReq).term))
 
 				if msg.(AppendEntriesReq).term < raft.currentTerm {
 
@@ -308,12 +310,13 @@ func (raft Raft) Follower() int {
 				} else {
 
 					// Follower's log is identical to that of the Leader. Safe to push new entries into the Follower's Log
-					log.Println("Follower's log is identical to that of the Leader. Safe to push new entries into the Follower's Log")
+					log.Println("F S" + strconv.Itoa(raft.ThisServerId) +"Follower's log is identical to that of the Leader. Safe to push new entries into the Follower's Log")
 					//Insert the log entry in to the map |log|
 					logStructInst := LogStruct{RaftLastLogIndex + 1, msg.(AppendEntriesReq).entry, false, msg.(AppendEntriesReq).term}
 					raft.log[RaftLastLogIndex+1] = logStructInst
 					AppendEntriesResInst := AppendEntriesRes{raft.currentTerm, true, RaftLastLogIndex, raft.ThisServerId}
 					//MapStruct.RLock()
+					log.Println("F S" + strconv.Itoa(raft.ThisServerId) + "RaftLastLogIndex =" +strconv.Itoa(int(RaftLastLogIndex)))
 					raft.Send(MapStruct.ServersMap[msg.(AppendEntriesReq).leaderId], Event{"AppendRPCRes", AppendEntriesResInst})
 					//MapStruct.RUnlock()
 					//Code to write to log FILE
@@ -326,11 +329,13 @@ func (raft Raft) Follower() int {
 				//HeartBeat
 				raft.LeaderId = msg.(AppendEntriesReq).leaderId
 				if msg.(AppendEntriesReq).leaderCommit > raft.commitIndex {
+					log.Println("F S" + strconv.Itoa(raft.ThisServerId) +"Self Commit Index = "+ strconv.Itoa(raft.commitIndex))
 					if msg.(AppendEntriesReq).leaderCommit < len(raft.log) {
 						raft.commitIndex = msg.(AppendEntriesReq).leaderCommit
 					} else {
 						raft.commitIndex = msg.(AppendEntriesReq).leaderCommit
 					}
+					log.Println("Leader Commit Detected. Updated self commitIndex to " + strconv.Itoa(raft.commitIndex))
 					raft.CommitCh <- raft.log[Lsn(raft.commitIndex)]
 				}
 				log.Println("F S" + strconv.Itoa(raft.ThisServerId) + "Rxd HeartBeat from Leader S" + strconv.Itoa(raft.LeaderId))
@@ -359,11 +364,11 @@ func (raft Raft) Leader() int {
 		for {
 
 			time.Sleep(time.Duration(5) * time.Millisecond)
-			log.Println("Inside Leader Infi loop")
+			//log.Println("Inside Leader Infi loop")
 			var data string
 
 			for _, server := range raft.Cluster.Servers {
-				log.Println("Inside servers For loop")
+				//log.Println("Inside servers For loop")
 				var RaftLastLogTerm int
 
 				//Workaround Go Lang Issue
@@ -382,13 +387,13 @@ func (raft Raft) Leader() int {
 
 					if len(raft.log) >= raft.nextIndex[raft.ThisServerId] {
 						//Log Entry to send
-						log.Println("Log Entry deteced to replicate")
+						log.Println("L S" + strconv.Itoa(raft.ThisServerId) +"Log Entry to replicate")
 						data = raft.log[Lsn(raft.nextIndex[raft.ThisServerId])].Log_data
 						log.Println(data)
 
 					} else {
 						//HeartBeat to send
-						log.Println("HeartBeat detected")
+						log.Println("L S" + strconv.Itoa(raft.ThisServerId) +"HeartBeat to send")
 						data = ""
 					}
 
@@ -455,9 +460,9 @@ func (raft Raft) Leader() int {
 				raft.nextIndex[msg.(AppendEntriesRes).serverId] = raft.nextIndex[msg.(AppendEntriesRes).serverId] + 1
 
 				//To count the number of responses - number of servers that have replication the log with index = msg.(AppendEntriesRes).index
-				raft.responses[msg.(AppendEntriesRes).index] = int(msg.(AppendEntriesRes).index) + 1
-				log.Println("L S" + strconv.Itoa(raft.ThisServerId)+"Number of Responses = "+strconv.Itoa(raft.responses[msg.(AppendEntriesRes).index]))
-				if raft.responses[msg.(AppendEntriesRes).index] == 2 {
+				raft.responses[Lsn(msg.(AppendEntriesRes).index)] = int(msg.(AppendEntriesRes).index) + 1
+				log.Println("L S" + strconv.Itoa(raft.ThisServerId)+"Number of Responses = "+strconv.Itoa(raft.responses[Lsn(msg.(AppendEntriesRes).index)]))
+				if raft.responses[Lsn(msg.(AppendEntriesRes).index)] == 2 {
 					//Execute on the State Machine
 					raft.CommitCh <- raft.log[Lsn(msg.(AppendEntriesRes).index)]
 					log.Println("L S" + strconv.Itoa(raft.ThisServerId)+" Log Entry =")
@@ -512,7 +517,7 @@ func (raft Raft) Candidate() int {
 				VoteReqInst := VoteReq{raft.currentTerm, raft.ThisServerId, lastLogIndex, lastLogTerm}
 
 				log.Print("VoteReqInst = ")
-				log.Print(VoteReqInst)
+				log.Println(VoteReqInst)
 
 				raft.Send(MapStruct.ServersMap[server.Id], Event{"VoteRequest", VoteReqInst})
 				//MapStruct.RUnlock()
