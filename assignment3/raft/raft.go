@@ -237,7 +237,6 @@ func (raft Raft) Follower() int {
 
 			} else {
 				//Candidate Term is greater or equal to the Follower Term, requires more scrutiny for voting
-				raft.currentTerm = msg.(VoteReq).currentTerm
 				MapStruct.RLock()
 				//Decide whether to vote or not
 				voteBool := raft.decideVote(msg.(VoteReq))
