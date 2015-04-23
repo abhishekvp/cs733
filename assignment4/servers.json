@@ -1,0 +1,35 @@
+{
+  "Path": "/tmp/",
+  "Servers": [
+    {
+      "Id": 0,
+      "Hostname": "localhost",
+      "ClientPort": 9000,
+      "LogPort": 9001
+    },
+    {
+      "Id": 1,
+      "Hostname": "localhost",
+      "ClientPort": 9002,
+      "LogPort": 9003
+    },
+    {
+      "Id": 2,
+      "Hostname": "localhost",
+      "ClientPort": 9004,
+      "LogPort": 9005
+    },
+    {
+      "Id": 3,
+      "Hostname": "localhost",
+      "ClientPort": 9006,
+      "LogPort": 9007
+    },
+    {
+      "Id": 4,
+      "Hostname": "localhost",
+      "ClientPort": 9008,
+      "LogPort": 9009
+    }
+  ]
+}
