@@ -1,5 +1,5 @@
 {
-  "Path": "/tmp/log_file.txt",
+  "Path": "/tmp/",
   "Servers": [
     {
       "Id": 0,

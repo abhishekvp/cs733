@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"sync"
 	"time"
+	"os"
 )
 
 /*
@@ -34,10 +35,7 @@ type LogEntry interface {
 * Made Map Concurrency Safe by using sync.RWMutex
  */
 
-var MapStruct = struct {
-	sync.RWMutex
-	ServersMap map[int]Raft
-}{ServersMap: make(map[int]Raft)}
+var ServersMap = make(map[int]Raft)
 
 // Raft setup
 type ServerConfig struct {
@@ -153,11 +151,9 @@ func NewRaft(clusterConfig *ClusterConfig, thisServerId int, LeaderId int) (Raft
 	log.Println("Server " + strconv.Itoa(thisServerId) + " Booted!")
 	var err error = nil
 	//Populating the Common Map containing all raft instance with the newly created raft instance
-	MapStruct.Lock()
 	//log.Println("Server " + strconv.Itoa(thisServerId) + "New Raft Write Lock Obtained")
-	MapStruct.ServersMap[thisServerId] = raft
+	ServersMap[thisServerId] = raft
 	//log.Println("Server " + strconv.Itoa(thisServerId) + "New Raft Write Lock Released")
-	MapStruct.Unlock()
 	return raft, err
 }
 
@@ -193,9 +189,7 @@ func (raft Raft) Loop(wg sync.WaitGroup) {
 func (raft Raft) PrintAllRafts() {
 	totalServers := raft.ServersCount
 	for i := 0; i < totalServers; i++ {
-		MapStruct.RLock()
-		fmt.Println(MapStruct.ServersMap[i])
-		MapStruct.RUnlock()
+		fmt.Println(ServersMap[i])
 	}
 
 }
@@ -226,24 +220,24 @@ func (raft Raft) Follower() int {
 			if msg.(VoteReq).currentTerm < raft.currentTerm {
 				//Candidate Term is lesser than Follower Term, hence negative vote
 				VoteResInst := VoteRes{raft.currentTerm, false}
-				MapStruct.RLock()
+				//MapStruct.RLock()
 				//log.Println("F S" + strconv.Itoa(raft.ThisServerId) + "Follower Write Lock Obtained")
 				//MapStruct.ServersMap[msg.(Vote).OrgServerId].EventCh <- Event{"VoteResponse", Vote{raft.ThisServerId, msg.(Vote).DestServerId, false, raft.currentTerm}}
-				raft.Send(MapStruct.ServersMap[msg.(VoteReq).candidateId], Event{"VoteResponse", VoteResInst})
-				MapStruct.RUnlock()
+				raft.Send(ServersMap[msg.(VoteReq).candidateId], Event{"VoteResponse", VoteResInst})
+				//MapStruct.RUnlock()
 				//log.Println("F S" + strconv.Itoa(raft.ThisServerId) + "Follower Write Lock Released")
 
 				log.Println("F S" + strconv.Itoa(raft.ThisServerId) + ": Sent Negative Vote Response to S" + strconv.Itoa(msg.(VoteReq).candidateId))
 
 			} else {
 				//Candidate Term is greater or equal to the Follower Term, requires more scrutiny for voting
-				MapStruct.RLock()
+				//MapStruct.RLock()
 				//Decide whether to vote or not
 				voteBool := raft.decideVote(msg.(VoteReq))
 				//log.Println("F S" + strconv.Itoa(raft.ThisServerId) + "Follower Write Lock Obtained")
 				//MapStruct.ServersMap[msg.(Vote).OrgServerId].EventCh <- Event{"VoteResponse", Vote{raft.ThisServerId, msg.(Vote).DestServerId, true, raft.currentTerm}}
-				raft.Send(MapStruct.ServersMap[msg.(VoteReq).candidateId], Event{"VoteResponse", VoteRes{raft.currentTerm, voteBool}})
-				MapStruct.RUnlock()
+				raft.Send(ServersMap[msg.(VoteReq).candidateId], Event{"VoteResponse", VoteRes{raft.currentTerm, voteBool}})
+				//MapStruct.RUnlock()
 				//log.Println("F S" + strconv.Itoa(raft.ThisServerId) + "Follower Write Lock Released")
 				if voteBool == true {
 					log.Println("F S" + strconv.Itoa(raft.ThisServerId) + ": Sent Positive Vote Response to S" + strconv.Itoa(msg.(VoteReq).candidateId))
@@ -272,7 +266,7 @@ func (raft Raft) Follower() int {
 
 			var RaftLastLogTerm int
 
-			if msg.(AppendEntriesReq).entry != "" {
+			if msg.(AppendEntriesReq).entry != "nil" {
 				log.Println("F S" + strconv.Itoa(raft.ThisServerId) + "Message not nil at Follower")
 				RaftLastLogIndex := Lsn(len(raft.log))
 
@@ -292,17 +286,20 @@ func (raft Raft) Follower() int {
 					log.Println("F S" + strconv.Itoa(raft.ThisServerId) + "Current Term is greater than Leader Term, send false")
 					AppendEntriesResInst := AppendEntriesRes{raft.currentTerm, false, RaftLastLogIndex, raft.ThisServerId}
 					//MapStruct.RLock()
-					raft.Send(MapStruct.ServersMap[msg.(AppendEntriesReq).leaderId], Event{"AppendRPCRes", AppendEntriesResInst})
+					raft.Send(ServersMap[msg.(AppendEntriesReq).leaderId], Event{"AppendRPCRes", AppendEntriesResInst})
 					//MapStruct.RUnlock()
 					log.Println("F S" + strconv.Itoa(raft.ThisServerId) + "sent false to AppendRPC from leader")
 
-				} else if msg.(AppendEntriesReq).prevLogTerm != RaftLastLogTerm {
+				} else {
+					raft.currentTerm = msg.(AppendEntriesReq).term
+				}
+				if msg.(AppendEntriesReq).prevLogTerm != RaftLastLogTerm {
 
 					// Follower's Log Term mismatch with that of AppendEntries Prev Log Term
 					log.Println("F S" + strconv.Itoa(raft.ThisServerId) + "Follower's Log Term mismatch with that of AppendEntries Prev Log Term")
 					AppendEntriesResInst := AppendEntriesRes{raft.currentTerm, false, RaftLastLogIndex, raft.ThisServerId}
 					//MapStruct.RLock()
-					raft.Send(MapStruct.ServersMap[msg.(AppendEntriesReq).leaderId], Event{"AppendRPCRes", AppendEntriesResInst})
+					raft.Send(ServersMap[msg.(AppendEntriesReq).leaderId], Event{"AppendRPCRes", AppendEntriesResInst})
 				//	MapStruct.RUnlock()
 					log.Println("F S" + strconv.Itoa(raft.ThisServerId) + "sent false to AppendRPC from leader")
 
@@ -316,9 +313,11 @@ func (raft Raft) Follower() int {
 					AppendEntriesResInst := AppendEntriesRes{raft.currentTerm, true, RaftLastLogIndex, raft.ThisServerId}
 					//MapStruct.RLock()
 					log.Println("F S" + strconv.Itoa(raft.ThisServerId) + "RaftLastLogIndex =" +strconv.Itoa(int(RaftLastLogIndex)))
-					raft.Send(MapStruct.ServersMap[msg.(AppendEntriesReq).leaderId], Event{"AppendRPCRes", AppendEntriesResInst})
+					raft.Send(ServersMap[msg.(AppendEntriesReq).leaderId], Event{"AppendRPCRes", AppendEntriesResInst})
 					//MapStruct.RUnlock()
 					//Code to write to log FILE
+					raft.LogToDisk(msg.(AppendEntriesReq).entry)
+					raft.LogToDisk("\n")
 					log.Println("F S" + strconv.Itoa(raft.ThisServerId) + "sent true to AppendRPC from leader")
 
 				}
@@ -326,13 +325,18 @@ func (raft Raft) Follower() int {
 			} else {
 
 				//HeartBeat
+				log.Println("HEARTBEAT! HEARTBEAT HEARTBEAT HEARTBEAT!")
+				if raft.currentTerm < msg.(AppendEntriesReq).term {
+					log.Println("F S" + strconv.Itoa(raft.ThisServerId) +"Follower updated TERM to leader TERM")
+					raft.currentTerm = msg.(AppendEntriesReq).term
+				}
 				raft.LeaderId = msg.(AppendEntriesReq).leaderId
 				if msg.(AppendEntriesReq).leaderCommit > raft.commitIndex {
 					log.Println("F S" + strconv.Itoa(raft.ThisServerId) +"Self Commit Index = "+ strconv.Itoa(raft.commitIndex))
 					if msg.(AppendEntriesReq).leaderCommit < len(raft.log) {
 						raft.commitIndex = msg.(AppendEntriesReq).leaderCommit
 					} else {
-						raft.commitIndex = msg.(AppendEntriesReq).leaderCommit
+						raft.commitIndex = len(raft.log)
 					}
 					log.Println("Leader Commit Detected. Updated self commitIndex to " + strconv.Itoa(raft.commitIndex))
 					raft.CommitCh <- raft.log[Lsn(raft.commitIndex)]
@@ -357,71 +361,54 @@ func (raft Raft) Follower() int {
 func (raft Raft) Leader() int {
 	log.Println("L S" + strconv.Itoa(raft.ThisServerId) + " Appointed LEADER!")
 
-	
 	// HeatBeat/AppendRPC Entry Sending Logic
 	go func() {
-		for {
-
-			time.Sleep(time.Duration(5) * time.Millisecond)
-			//log.Println("Inside Leader Infi loop")
+		for {			
 			var data string
-
 			for _, server := range raft.Cluster.Servers {
 				//log.Println("Inside servers For loop")
 				var RaftLastLogTerm int
-
 				//Workaround Go Lang Issue
-				
-				//MapStruct.RLock()
-				tempRaftInst := MapStruct.ServersMap[server.Id]
-				//MapStruct.RUnlock()
+				tempRaftInst := ServersMap[server.Id]
 				tempRaftInst.LeaderId = raft.ThisServerId
-				//MapStruct.Lock()
-				MapStruct.ServersMap[server.Id] = tempRaftInst
-				//MapStruct.Unlock()
-					//log.Println("In inside for loop")
-
+				ServersMap[server.Id] = tempRaftInst
+				//log.Println("In inside for loop")
 				if server.Id != raft.ThisServerId {
-
-
-					if len(raft.log) >= raft.nextIndex[raft.ThisServerId] {
+					log.Println("L S" + strconv.Itoa(raft.ThisServerId) +": Len of my Log = "+ strconv.Itoa(len(raft.log)))
+					log.Println("L S" + strconv.Itoa(raft.ThisServerId) +": NextIndex["+strconv.Itoa(server.Id)+"] = "+strconv.Itoa(raft.nextIndex[server.Id]))
+					if len(raft.log) >= raft.nextIndex[server.Id] {
 						//Log Entry to send
 						log.Println("L S" + strconv.Itoa(raft.ThisServerId) +"Log Entry to replicate")
-						data = raft.log[Lsn(raft.nextIndex[raft.ThisServerId])].Log_data
+						data = raft.log[Lsn(raft.nextIndex[server.Id])].Log_data
 						log.Println(data)
+						raft.nextIndex[server.Id] = raft.nextIndex[server.Id] + 1
 
 					} else {
 						//HeartBeat to send
 						log.Println("L S" + strconv.Itoa(raft.ThisServerId) +"HeartBeat to send")
-						data = ""
+						data = "nil"
 					}
-
 				//Case when raft.log is empty
 				_, exist := raft.log[Lsn(len(raft.log))]
 				if exist == true {
-					RaftLastLogTerm = raft.log[Lsn(raft.nextIndex[raft.ThisServerId]-1)].term
+					RaftLastLogTerm = raft.log[Lsn(raft.nextIndex[server.Id]-1)].term
 				} else {
 					RaftLastLogTerm = 0
 				}
-
-					//MapStruct.RLock()
 					//log.Print("L S" + strconv.Itoa(raft.ThisServerId) + " Leader Read Lock Obtained")
 					//MapStruct.ServersMap[server.Id].EventCh <- heartBeat
-					appendEntry := Event{"AppendRPC", AppendEntriesReq{raft.currentTerm, raft.ThisServerId, raft.nextIndex[raft.ThisServerId]-1,RaftLastLogTerm ,data, raft.commitIndex}}
-					raft.Send(MapStruct.ServersMap[server.Id], appendEntry)
-					//MapStruct.RUnlock()
+					appendEntry := Event{"AppendRPC", AppendEntriesReq{raft.currentTerm, raft.ThisServerId, raft.nextIndex[server.Id]-1,RaftLastLogTerm ,data, raft.commitIndex}}
+					raft.Send(ServersMap[server.Id], appendEntry)
 					//log.Print("L S" + strconv.Itoa(raft.ThisServerId) + " Leader Read Lock Released")
-
 					log.Println("L S" + strconv.Itoa(raft.ThisServerId) + " sent AppendRPC to " + strconv.Itoa(server.Id))
-
 				}
 			}
+			//time.Sleep(time.Duration(5) * time.Millisecond)
 		}
-
 	}()
 
 	for {
-
+	//time.Sleep(time.Duration(5) * time.Millisecond)
 		event := <-raft.EventCh
 		switch event.evType {
 		case "ClientAppend":
@@ -456,7 +443,9 @@ func (raft Raft) Leader() int {
 				log.Println("L S" + strconv.Itoa(raft.ThisServerId)+"Received Successfull AppendRPC Response from S"+strconv.Itoa(msg.(AppendEntriesRes).serverId))
 
 				raft.matchIndex[msg.(AppendEntriesRes).serverId] = int(msg.(AppendEntriesRes).index)
-				raft.nextIndex[msg.(AppendEntriesRes).serverId] = raft.nextIndex[msg.(AppendEntriesRes).serverId] + 1
+				log.Println("L S" + strconv.Itoa(raft.ThisServerId)+"Original Next Index["+strconv.Itoa(raft.ThisServerId)+"] ="+ strconv.Itoa(raft.nextIndex[msg.(AppendEntriesRes).serverId]))
+				//raft.nextIndex[msg.(AppendEntriesRes).serverId] = raft.nextIndex[msg.(AppendEntriesRes).serverId] + 1
+				log.Println("L S" + strconv.Itoa(raft.ThisServerId)+"Updated Next Index["+strconv.Itoa(raft.ThisServerId)+"] ="+ strconv.Itoa(raft.nextIndex[msg.(AppendEntriesRes).serverId]))
 
 				//To count the number of responses - number of servers that have replication the log with index = msg.(AppendEntriesRes).index
 				raft.responses[Lsn(msg.(AppendEntriesRes).index)] = int(msg.(AppendEntriesRes).index) + 1
@@ -518,7 +507,7 @@ func (raft Raft) Candidate() int {
 				log.Print("VoteReqInst = ")
 				log.Println(VoteReqInst)
 
-				raft.Send(MapStruct.ServersMap[server.Id], Event{"VoteRequest", VoteReqInst})
+				raft.Send(ServersMap[server.Id], Event{"VoteRequest", VoteReqInst})
 				//MapStruct.RUnlock()
 				//log.Println("C S" + strconv.Itoa(raft.ThisServerId) + "Candidate Write Lock Released")
 				log.Println("C S" + strconv.Itoa(raft.ThisServerId) + " Sending vote request to " + strconv.Itoa(server.Id))
@@ -618,9 +607,9 @@ func (raft Raft) decideVote(vote VoteReq) bool {
 
 	if raft.votedFor == -1 || raft.votedFor == vote.candidateId {
 
-		MapStruct.RLock()
-		rxRaft := MapStruct.ServersMap[raft.ThisServerId]
-		MapStruct.RUnlock()
+		//MapStruct.RLock()
+		rxRaft := ServersMap[raft.ThisServerId]
+		//MapStruct.RUnlock()
 		//Decide whose log is more up-to-date
 
 		_, exist := rxRaft.log[Lsn(len(rxRaft.log))]
@@ -708,36 +697,8 @@ func (raft Raft) Append(data string) (LogEntry, error) {
 		log.Println("Append : Log Entry pushed to Log Map of Leader")
 		log.Println("Data at Leader = "+raft.log[lsn].Log_data)
 
+
 		/*
-		* Write the received log entry - data byte to a file in the local disk
-		*
-		* References:
-		* Writing to Files - https://gobyexample.com/writing-files
-		* Appending to Files - http://stackoverflow.com/questions/7151261/append-to-a-file-in-go?lq=1
-		* Check whether file already exists - http://stackoverflow.com/questions/12518876/how-to-check-if-a-file-exists-in-go
-
-
-		filename := (raft.Cluster).Path
-
-		if _, err := os.Stat(filename); os.IsNotExist(err) {
-			_, err := os.Create(filename)
-			if err != nil {
-				panic(err)
-			}
-		}
-
-		logFile, err := os.OpenFile(filename, os.O_APPEND|os.O_WRONLY, 0666)
-		if err != nil {
-			panic(err)
-		}
-
-		defer logFile.Close()
-
-		// ########NOTE: DUMMY value for commit, remember to correct it!
-		if _, err = logFile.WriteString("\n" + strconv.Itoa(int(log_instance.Log_lsn)) + " " + string(log_instance.Log_data) + "false"); err != nil {
-			panic(err)
-		}
-		
 
 		// Take the raft object and broadcast the log-entry
 		// Lets send the logentry to each of the servers in the cluster
@@ -763,3 +724,34 @@ func (raft Raft) Append(data string) (LogEntry, error) {
 	}
 }
 
+func (raft Raft) LogToDisk(data string) {
+		/*
+		* Write the received log entry - data byte to a file in the local disk
+		*
+		* References:
+		* Writing to Files - https://gobyexample.com/writing-files
+		* Appending to Files - http://stackoverflow.com/questions/7151261/append-to-a-file-in-go?lq=1
+		* Check whether file already exists - http://stackoverflow.com/questions/12518876/how-to-check-if-a-file-exists-in-go
+		*/
+
+		filename := (raft.Cluster).Path + strconv.Itoa(raft.ThisServerId)
+
+		if _, err := os.Stat(filename); os.IsNotExist(err) {
+			_, err := os.Create(filename)
+			if err != nil {
+				panic(err)
+			}
+		}
+
+		logFile, err := os.OpenFile(filename, os.O_APPEND|os.O_WRONLY, 0666)
+		if err != nil {
+			panic(err)
+		}
+
+		defer logFile.Close()
+
+		// ########NOTE: DUMMY value for commit, remember to correct it!
+		if _, err = logFile.WriteString(data); err != nil {
+			panic(err)
+		}
+}
