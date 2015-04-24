@@ -38,7 +38,7 @@ Currently server-server communication fails due to not being able to decode the 
 * The leader periodically sends Heartbeats to all servers, stating that its the leader in that term.
 * A client connects to a server, not knowing which is the Leader. If not the Leader, the server will send a Redirect Error to the Client, giving the port number of the Leader.
 * Once the Client is connected to the Leader. It can issue commands to the Leader, in this case KV Commands.
-* On receiving a command eg. "set name ABC" from a client, the leader does the following:
+* On receiving a command from a client, the leader does the following:
 	- Leader first Appends the log entry in its own log
 	- Leader then sends the log entry to all the other servers
 	- The servers, check whether their log is consistent with the leader and append the received Log Entry.
