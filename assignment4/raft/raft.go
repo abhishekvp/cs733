@@ -8,14 +8,15 @@ import (
 	"sync"
 	"time"
 	"os"
+	"encoding/gob"
+	"net"
 )
 
 /*
 * Referred raft Package at https://github.com/pankajrandhe/assignment2/raft
 * <Pankaj Randhe and I were group-mates for Assignment 2>
 *
-* Referred raft Package authored by Pankaj Randhe at https://github.com/pankajrandhe/assignment3/raft
- */
+*/
 
 //Log sequence number, unique for all time.
 type Lsn uint64
@@ -60,6 +61,7 @@ type Raft struct {
 	currentTerm  int
 	votedFor     int
 	log          map[Lsn]LogStruct
+	EncoderMap   map[int]*gob.Encoder
 	commitIndex  int
 	lastApplied  int
 	nextIndex    []int
@@ -67,6 +69,7 @@ type Raft struct {
 	responses 	 map[Lsn]int
 	EventCh      chan Event
 	CommitCh     chan LogStruct
+
 }
 
 type LogStruct struct {
@@ -130,24 +133,25 @@ const (
 // commitCh is the channel that the kvstore waits on for committed messages.
 // When the process starts, the local disk log is read and all committed
 // entries are recovered and replayed
-func NewRaft(clusterConfig *ClusterConfig, thisServerId int, LeaderId int) (Raft, error) {
+func NewRaft(clusterConfig *ClusterConfig, thisServerId int, LeaderId int, CommitCh chan LogStruct) (Raft, error) {
 	serversCount := 0
 	currentTerm := 0
 	votedFor := -1
 	logMap := make(map[Lsn]LogStruct)
+	EncoderMap := make(map[int]*gob.Encoder)
 	commitIndex := -1
 	lastApplied := -1
 	nextIndex := []int{1, 1, 1, 1, 1}
 	matchIndex := []int{0, 0, 0, 0, 0}
 	responses := make(map[Lsn]int)
 	EventCh := make(chan Event)
-	CommitCh := make(chan LogStruct)
+	//CommitCh := make(chan LogStruct)
 
 	for _, _ = range clusterConfig.Servers {
 		serversCount = serversCount + 1
 	}
 
-	var raft = Raft{clusterConfig, thisServerId, LeaderId, serversCount, currentTerm, votedFor, logMap, commitIndex, lastApplied, nextIndex, matchIndex, responses, EventCh, CommitCh}
+	var raft = Raft{clusterConfig, thisServerId, LeaderId, serversCount, currentTerm, votedFor, logMap, EncoderMap, commitIndex, lastApplied, nextIndex, matchIndex, responses, EventCh, CommitCh}
 	log.Println("Server " + strconv.Itoa(thisServerId) + " Booted!")
 	var err error = nil
 	//Populating the Common Map containing all raft instance with the newly created raft instance
@@ -159,10 +163,97 @@ func NewRaft(clusterConfig *ClusterConfig, thisServerId int, LeaderId int) (Raft
 
 func (raft Raft) Loop(wg sync.WaitGroup) {
 
+	//Server-Server Communication Logic - Referred raft Package authored by Pankaj Randhe
+
+	//Listen on own Server(Log) Port for other Servers
+	tcpAddr, connError := net.ResolveTCPAddr("tcp", ":"+strconv.Itoa(raft.Cluster.Servers[raft.ThisServerId].LogPort))
+	if connError != nil {
+		log.Fatal(connError)
+	}
+	listener, connError := net.ListenTCP("tcp", tcpAddr)
+	if connError != nil {
+		log.Fatal(connError)
+	}
+
+	//Register the structs to be sent through socket communication(encoded and decoded)
+	gob.Register(VoteReq{})
+	gob.Register(VoteRes{})
+	gob.Register(AppendEntriesReq{})
+	gob.Register(AppendEntriesRes{})
+	gob.Register(Event{})
+
+	//Keep Listening for incoming Server Connections - Go Routine - Infinite For Loop
+	wg.Add(1)
+	go func() {
+		for {
+			serverConn, connError := listener.Accept()
+			log.Println("S"+strconv.Itoa(raft.Cluster.Servers[raft.ThisServerId].Id)+": Got a incoming Server Connection. Now Decoding")
+			clientInp1:= make([]byte, 512)
+			size, _ := serverConn.Read(clientInp1[0:])
+			clientInp1 = clientInp1[:size]
+			log.Println("S"+strconv.Itoa(raft.Cluster.Servers[raft.ThisServerId].Id)+"GOT DATA=")
+			log.Println(clientInp1)
+			if connError != nil {
+				log.Fatal(connError)
+			}
+			//For each connection, established, decode using gob the message sent by that server
+			wg.Add(1)
+			go func(){
+				log.Println("S"+strconv.Itoa(raft.Cluster.Servers[raft.ThisServerId].Id)+":Entered Decoding Goroutine")
+				Decoder := gob.NewDecoder(serverConn)
+				log.Println("S"+strconv.Itoa(raft.Cluster.Servers[raft.ThisServerId].Id)+":Created Decoder Object")
+				for {
+					var Rxdevent Event
+					decodeErr := Decoder.Decode(&Rxdevent)
+					log.Println(decodeErr)
+					if decodeErr == nil {
+						log.Println("S"+strconv.Itoa(raft.Cluster.Servers[raft.ThisServerId].Id)+":Decoded Message = ")
+						log.Println(Rxdevent)
+						//Send the received decoded |Event| Struct onto |EventCh| channel
+						raft.EventCh <- Rxdevent
+						log.Println("S"+strconv.Itoa(raft.Cluster.Servers[raft.ThisServerId].Id)+ ":Put in Channel")
+					} else {
+						log.Println("S"+strconv.Itoa(raft.Cluster.Servers[raft.ThisServerId].Id)+":Decoding Error occured")
+					}
+				}
+				defer serverConn.Close()
+
+				}()
+			}
+			defer wg.Done()
+	}()
+
+	//Connect to  all servers, except self.
+	log.Println("S"+strconv.Itoa(raft.Cluster.Servers[raft.ThisServerId].Id)+":Connect to  all servers, except self.")
+	//Populate self's EncoderMap with the encoder object corresponding to other servers
+	for _, server := range raft.Cluster.Servers {
+		var connRaft net.Conn
+		if server.Id != raft.ThisServerId {
+			for {
+					conn, err := net.Dial("tcp", ":" + strconv.Itoa(server.LogPort))
+					if err != nil {
+						continue
+					} else {
+						connRaft = conn
+						log.Println("S"+strconv.Itoa(raft.ThisServerId)+":Dialed connection with : S"+strconv.Itoa(server.Id) +" at Port:"+strconv.Itoa(server.LogPort))
+						break
+						//Break the infinite loop, with the conn object
+					}
+			}
+			encoder := gob.NewEncoder(connRaft)
+			raft.EncoderMap[server.Id] = encoder
+		} else {
+			raft.EncoderMap[server.Id] = nil
+		}
+	}
+
+
+
+	wg.Add(1)
 	go func(){
 
 		for {
-
+			//Keep Checking for Log Entry on the Commit Channel
 			data := <- raft.CommitCh
 			log.Println("Got DATA", data)
 		}
@@ -200,7 +291,7 @@ func (raft Raft) Follower() int {
 
 	timer := time.AfterFunc(time.Duration(random(0, 1000))*time.Millisecond, func() {
 		log.Print("F S" + strconv.Itoa(raft.ThisServerId) + " Timed Out")
-		raft.Send(raft, Event{"Timeout", nil})
+		raft.Send(raft.ThisServerId, Event{"Timeout", nil})
 		//raft.EventCh <- Event{"Timeout", nil}
 	})
 
@@ -223,7 +314,7 @@ func (raft Raft) Follower() int {
 				//MapStruct.RLock()
 				//log.Println("F S" + strconv.Itoa(raft.ThisServerId) + "Follower Write Lock Obtained")
 				//MapStruct.ServersMap[msg.(Vote).OrgServerId].EventCh <- Event{"VoteResponse", Vote{raft.ThisServerId, msg.(Vote).DestServerId, false, raft.currentTerm}}
-				raft.Send(ServersMap[msg.(VoteReq).candidateId], Event{"VoteResponse", VoteResInst})
+				raft.Send(msg.(VoteReq).candidateId, Event{"VoteResponse", VoteResInst})
 				//MapStruct.RUnlock()
 				//log.Println("F S" + strconv.Itoa(raft.ThisServerId) + "Follower Write Lock Released")
 
@@ -236,7 +327,7 @@ func (raft Raft) Follower() int {
 				voteBool := raft.decideVote(msg.(VoteReq))
 				//log.Println("F S" + strconv.Itoa(raft.ThisServerId) + "Follower Write Lock Obtained")
 				//MapStruct.ServersMap[msg.(Vote).OrgServerId].EventCh <- Event{"VoteResponse", Vote{raft.ThisServerId, msg.(Vote).DestServerId, true, raft.currentTerm}}
-				raft.Send(ServersMap[msg.(VoteReq).candidateId], Event{"VoteResponse", VoteRes{raft.currentTerm, voteBool}})
+				raft.Send(msg.(VoteReq).candidateId, Event{"VoteResponse", VoteRes{raft.currentTerm, voteBool}})
 				//MapStruct.RUnlock()
 				//log.Println("F S" + strconv.Itoa(raft.ThisServerId) + "Follower Write Lock Released")
 				if voteBool == true {
@@ -286,7 +377,7 @@ func (raft Raft) Follower() int {
 					log.Println("F S" + strconv.Itoa(raft.ThisServerId) + "Current Term is greater than Leader Term, send false")
 					AppendEntriesResInst := AppendEntriesRes{raft.currentTerm, false, RaftLastLogIndex, raft.ThisServerId}
 					//MapStruct.RLock()
-					raft.Send(ServersMap[msg.(AppendEntriesReq).leaderId], Event{"AppendRPCRes", AppendEntriesResInst})
+					raft.Send(msg.(AppendEntriesReq).leaderId, Event{"AppendRPCRes", AppendEntriesResInst})
 					//MapStruct.RUnlock()
 					log.Println("F S" + strconv.Itoa(raft.ThisServerId) + "sent false to AppendRPC from leader")
 
@@ -299,7 +390,7 @@ func (raft Raft) Follower() int {
 					log.Println("F S" + strconv.Itoa(raft.ThisServerId) + "Follower's Log Term mismatch with that of AppendEntries Prev Log Term")
 					AppendEntriesResInst := AppendEntriesRes{raft.currentTerm, false, RaftLastLogIndex, raft.ThisServerId}
 					//MapStruct.RLock()
-					raft.Send(ServersMap[msg.(AppendEntriesReq).leaderId], Event{"AppendRPCRes", AppendEntriesResInst})
+					raft.Send(msg.(AppendEntriesReq).leaderId, Event{"AppendRPCRes", AppendEntriesResInst})
 				//	MapStruct.RUnlock()
 					log.Println("F S" + strconv.Itoa(raft.ThisServerId) + "sent false to AppendRPC from leader")
 
@@ -313,7 +404,7 @@ func (raft Raft) Follower() int {
 					AppendEntriesResInst := AppendEntriesRes{raft.currentTerm, true, RaftLastLogIndex, raft.ThisServerId}
 					//MapStruct.RLock()
 					log.Println("F S" + strconv.Itoa(raft.ThisServerId) + "RaftLastLogIndex =" +strconv.Itoa(int(RaftLastLogIndex)))
-					raft.Send(ServersMap[msg.(AppendEntriesReq).leaderId], Event{"AppendRPCRes", AppendEntriesResInst})
+					raft.Send(msg.(AppendEntriesReq).leaderId, Event{"AppendRPCRes", AppendEntriesResInst})
 					//MapStruct.RUnlock()
 					//Code to write to log FILE
 					raft.LogToDisk(msg.(AppendEntriesReq).entry)
@@ -361,7 +452,7 @@ func (raft Raft) Follower() int {
 func (raft Raft) Leader() int {
 	log.Println("L S" + strconv.Itoa(raft.ThisServerId) + " Appointed LEADER!")
 
-	// HeatBeat/AppendRPC Entry Sending Logic
+	// HeatBeat/AppendRPCEntry Sending Logic
 	go func() {
 		for {			
 			var data string
@@ -398,7 +489,7 @@ func (raft Raft) Leader() int {
 					//log.Print("L S" + strconv.Itoa(raft.ThisServerId) + " Leader Read Lock Obtained")
 					//MapStruct.ServersMap[server.Id].EventCh <- heartBeat
 					appendEntry := Event{"AppendRPC", AppendEntriesReq{raft.currentTerm, raft.ThisServerId, raft.nextIndex[server.Id]-1,RaftLastLogTerm ,data, raft.commitIndex}}
-					raft.Send(ServersMap[server.Id], appendEntry)
+					raft.Send(server.Id, appendEntry)
 					//log.Print("L S" + strconv.Itoa(raft.ThisServerId) + " Leader Read Lock Released")
 					log.Println("L S" + strconv.Itoa(raft.ThisServerId) + " sent AppendRPC to " + strconv.Itoa(server.Id))
 				}
@@ -477,7 +568,7 @@ func (raft Raft) Candidate() int {
 	timer := time.AfterFunc(time.Duration(random(0, 1000))*time.Millisecond, func() {
 		log.Print("C S" + strconv.Itoa(raft.ThisServerId) + " Timed Out")
 		//raft.EventCh <- Event{"Timeout", nil}
-		raft.Send(raft, Event{"Timeout", nil})
+		raft.Send(raft.ThisServerId, Event{"Timeout", nil})
 	})
 
 	//Send VoteRequest to all servers
@@ -507,7 +598,7 @@ func (raft Raft) Candidate() int {
 				log.Print("VoteReqInst = ")
 				log.Println(VoteReqInst)
 
-				raft.Send(ServersMap[server.Id], Event{"VoteRequest", VoteReqInst})
+				raft.Send(server.Id, Event{"VoteRequest", VoteReqInst})
 				//MapStruct.RUnlock()
 				//log.Println("C S" + strconv.Itoa(raft.ThisServerId) + "Candidate Write Lock Released")
 				log.Println("C S" + strconv.Itoa(raft.ThisServerId) + " Sending vote request to " + strconv.Itoa(server.Id))
@@ -581,8 +672,9 @@ func (raft Raft) Candidate() int {
 }
 
 //Reference : Prof. Sriram's comment on Piazza
-func (raft Raft) Send(toServer Raft, msg Event) {
+func (raft Raft) Send(toServerId int, msg Event) {
 
+/*
 	r := random(0, 100)
 	delay := 10
 	if r <= 50 {
@@ -592,10 +684,55 @@ func (raft Raft) Send(toServer Raft, msg Event) {
 		time.AfterFunc(time.Duration(delay)*time.Millisecond, func() {
 			toServer.Receive(msg)
 		})
-	}
-	//else do nothing. Msg dropped
+	}//else do nothing. Msg dropped
+*/
+//Send using sockets
+log.Println("Send: Send to "+strconv.Itoa(toServerId))
+encoder := raft.EncoderMap[raft.Cluster.Servers[toServerId].Id]
+if encoder != nil {
+	log.Println("Send: Got encoder object")
+	_ = encoder.Encode(msg)
+	log.Println("Send: Encoded Message =")
+	log.Println(msg)
+} else {
+	log.Println("Send: Did not get encoder obj, Now filling in EncoderMap")
+  		var connRaft net.Conn
+		for {
+			conn, err := net.Dial("tcp", ":" + strconv.Itoa(raft.Cluster.Servers[toServerId].LogPort))
+			conn.Write([]byte("Hello"))
+			log.Println("Send: Sent Hello to "+strconv.Itoa(raft.Cluster.Servers[toServerId].Id))
+			if err != nil {
+				continue
+			} else {
+				connRaft = conn
+				break
+				//Break the infinite loop, with the conn object
+			}
+			}
+		encoder := gob.NewEncoder(connRaft)
+		raft.EncoderMap[raft.Cluster.Servers[toServerId].Id] = encoder
+		log.Println("Send: Encoder Obj Reattempted to put in EncMap")
+		//Now Send the data
+		encoder.Encode(msg)
+		log.Println("Send: Encoded Message =")
+		log.Println(msg)
+		Decoder := gob.NewDecoder(connRaft)
+		log.Println("Send: Decoder Created in Send")
+		var Rxdevent Event
+		decodeErr := Decoder.Decode(&Rxdevent)
+		log.Println("Send: Error=" )
+		log.Println(decodeErr)
+		if decodeErr == nil {
+			log.Println(" Send:Decoded Message = ")
+			log.Println(Rxdevent)
+		} 
+
+
+}
+	
 }
 
+//Not Used for Assignment 4
 func (raft Raft) Receive(msg Event) {
 	raft.EventCh <- msg
 }
@@ -749,8 +886,7 @@ func (raft Raft) LogToDisk(data string) {
 		}
 
 		defer logFile.Close()
-
-		// ########NOTE: DUMMY value for commit, remember to correct it!
+		
 		if _, err = logFile.WriteString(data); err != nil {
 			panic(err)
 		}
